@@ -1,0 +1,94 @@
+# Rock64 Robot Setup Notes
+
+This file captures the current hardware stack, integration strategy, and deployment guidance for the Rock64 robotics platform.
+
+## Current hardware stack
+
+The active robot assembly is:
+
+- **Arduino Uno R3** with motor shield and sensor expansion
+- **Motor shield** for motor drivers and sensor breakout
+- **MPU-6050 IMU** on the shield for orientation and motion feedback
+- **Rock64 SBC** as the high-level brain
+- **ESP32-CAM** connected to Rock64 for vision streaming
+- **Logitech K400** or similar USB keyboard for console access
+
+## Secondary inventory
+
+These components are available or previously discussed, but not currently part of the primary stack:
+
+- ESP8266 modules for auxiliary IoT tasks
+- Additional ultrasonic sensors for obstacle avoidance
+- IR line-tracking arrays for path-following
+- Extra servos or actuators for end effectors
+- PS5 DualSense controller as a remote input device
+
+## Sensor integration
+
+The current architecture splits responsibilities along real-time and high-level domains:
+
+- **Arduino Uno**: real-time motor control, PWM, heartbeat safety, low-latency sensor polling
+- **Rock64**: vision ingestion, networking, host control, future ROS 2 middleware
+
+Common sensor roles:
+
+- HC-SR04 ultrasonic rangefinder — obstacle detection on Uno
+- IR line-tracking modules — line following on Uno
+- MPU-6050 IMU — orientation and motion sensing on Uno
+- ESP32-CAM — vision stream to Rock64
+- Bluetooth/USB controller — remote input for Rock64
+
+## Power architecture
+
+Use two separate power sources for reliability:
+
+- **Motor / Uno power**: robot battery pack (7-12V) feeding the motor driver shield
+- **Rock64 + ESP32-CAM power**: dedicated 5V regulator or battery pack rated for 3A
+
+### Critical rule
+
+- Maintain one **common ground** between the motor controller and Rock64.
+- Do not connect the positive rails of the two battery sources together.
+- Keep motor power and logic power isolated, but share ground.
+
+### Practical wiring advice
+
+- Bottom tier: Uno and motor shield (noisy motor zone)
+- Isolation layer: plastic standoffs or nonconductive spacer between the shield and Rock64
+- Top tier: Rock64 and ESP32-CAM
+- Route data cables (USB, serial) away from motor power wiring
+
+## Stability and safety recommendations
+
+- Power the ESP32-CAM from the Rock64 USB port rather than the motor supply.
+- Use a regulated 5V 3A supply for the Rock64 to prevent brownouts.
+- Add motor suppression capacitors if you observe noise, resets, or communication errors.
+
+## Software checklist
+
+1. Flash the Arduino Uno firmware from `firmware/mcu-motors/src/main.cpp`.
+2. Flash the ESP32-CAM firmware from `firmware/esp32-vision/src/main.cpp`.
+3. Confirm serial communications from Rock64 to Arduino at 115200 baud.
+4. Confirm the ESP32-CAM serves an MJPEG stream at `http://192.168.4.1/stream`.
+5. Test the host control stack in `ros2_ws/`.
+
+## Motor control safety
+
+- Arduino firmware enforces a **200 ms heartbeat timeout**.
+- The AVR watchdog is enabled with a **500 ms window**.
+- Motor outputs default to `RELEASE` if command packets stop.
+
+## Integration strategy
+
+- Keep real-time control on the Arduino Uno and motor driver shield.
+- Offload vision, network, and higher-level coordination to the Rock64.
+- Reserve the Rock64 for ROS 2 or advanced host middleware after hardware integration is stable.
+
+## Next steps
+
+- Confirm physical wiring and common ground.
+- Validate the ESP32-CAM AP and MJPEG stream.
+- Verify the Arduino serial packet protocol using `ros2_ws/host_control/main.py`.
+- Once stable, evolve `ros2_ws/` into ROS 2 packages and a proper node graph.
+
+For the full system architecture and research-level planning, see `geminiresearchsuggestions`.

@@ -1,0 +1,29 @@
+---
+- name: Local deployment setup for Rock64 Robot
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Ensure deployment directory exists
+      file:
+        path: "./deployment"
+        state: directory
+        mode: '0755'
+
+    - name: Install system packages for Rock64 host development
+      raw: |
+        sudo apt-get update
+        sudo apt-get install -y python3 python3-pip git
+      changed_when: false
+
+    - name: Install PlatformIO
+      pip:
+        name: platformio
+        executable: python3
+
+    - name: Validate Arduino firmware build
+      command: pio run -d firmware/mcu-motors
+
+    - name: Validate ESP32 firmware build
+      command: pio run -d firmware/esp32-vision

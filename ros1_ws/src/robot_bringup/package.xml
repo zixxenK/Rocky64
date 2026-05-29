@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>robot_bringup</name>
+  <version>0.0.0</version>
+  <description>ROS bringup package for Rock64 robot integration.</description>
+  <maintainer email="developer@example.com">Robot Developer</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>rospy</build_depend>
+  <build_depend>arduino_serial_bridge</build_depend>
+  <build_depend>esp32_camera_bridge</build_depend>
+  <build_depend>ps5_controller_bridge</build_depend>
+
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>arduino_serial_bridge</exec_depend>
+  <exec_depend>esp32_camera_bridge</exec_depend>
+  <exec_depend>ps5_controller_bridge</exec_depend>
+
+  <export/>
+</package>

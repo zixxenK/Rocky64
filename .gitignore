@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+venv/
+.env
+.env.*
+*.swp
+
+# ROS1
+devel/
+build/
+log/
+**/build/
+**/devel/
+**/log/
+*.pyc
+
+# ROS2
+install/
+log/
+build/
+**/build/
+**/install/
+**/log/
+
+# PlatformIO
+.pio/
+**/.build/
+*.hex
+*.elf
+*.bin
+*.eep
+
+# VS Code
+.vscode/
+
+# Misc
+*.bak
+*.tmp
+*~

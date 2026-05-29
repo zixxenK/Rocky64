@@ -1,0 +1,21 @@
+<launch>
+  <node pkg="arduino_serial_bridge" type="arduino_serial_node.py" name="arduino_serial_bridge" output="screen">
+    <param name="serial_port" value="/dev/ttyS1" />
+    <param name="baudrate" value="115200" />
+    <param name="cmd_vel_topic" value="/cmd_vel" />
+    <param name="telemetry_topic" value="/robot_telemetry" />
+  </node>
+
+  <node pkg="esp32_camera_bridge" type="camera_bridge.py" name="esp32_camera_bridge" output="screen">
+    <param name="camera_url" value="http://192.168.4.1/stream" />
+    <param name="camera_topic" value="/camera/image_raw" />
+    <param name="frame_id" value="camera" />
+    <param name="publish_rate" value="10.0" />
+  </node>
+
+  <node pkg="ps5_controller_bridge" type="ps5_ros_bridge.py" name="ps5_ros_bridge" output="screen">
+    <param name="cmd_vel_topic" value="/cmd_vel" />
+    <param name="leftx_axis" value="0" />
+    <param name="lefty_axis" value="1" />
+  </node>
+</launch>

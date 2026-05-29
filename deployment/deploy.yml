@@ -1,0 +1,35 @@
+---
+- name: Deploy Rock64 Robot software to target host
+  hosts: rock64
+  become: true
+  vars:
+    repo_url: 'https://example.com/your/robot-repo.git'
+    deploy_root: '/opt/robot'
+    current_link: '/opt/robot/current'
+
+  tasks:
+    - name: Ensure release directory exists
+      file:
+        path: "{{ deploy_root }}/releases"
+        state: directory
+        mode: '0755'
+
+    - name: Clone repository into a timestamped release directory
+      ansible.builtin.command:
+        cmd: >
+          git clone --depth 1 {{ repo_url }} {{ deploy_root }}/releases/{{ ansible_date_time.iso8601_basic_short }}
+      args:
+        creates: "{{ deploy_root }}/releases/{{ ansible_date_time.iso8601_basic_short }}"
+
+    - name: Update current symlink to new release
+      file:
+        src: "{{ deploy_root }}/releases/{{ ansible_date_time.iso8601_basic_short }}"
+        dest: "{{ current_link }}"
+        state: link
+        force: true
+
+    - name: Ensure PlatformIO firmware directories exist
+      file:
+        path: "{{ current_link }}/firmware"
+        state: directory
+        mode: '0755'

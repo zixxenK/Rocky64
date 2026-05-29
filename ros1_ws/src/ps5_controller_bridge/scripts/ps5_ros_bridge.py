@@ -102,7 +102,10 @@ def main():
     parser.add_argument('--leftx-axis', type=int, default=0, help='Axis index for left stick horizontal')
     parser.add_argument('--lefty-axis', type=int, default=1, help='Axis index for left stick vertical')
     parser.add_argument('--invert-lefty', action='store_true', help='Invert the left stick vertical axis')
-    args = parser.parse_args()
+
+    ros_args = rospy.myargv(argv=sys.argv)[1:]
+    ros_args = [arg for arg in ros_args if not arg.startswith('__')]
+    args = parser.parse_args(ros_args)
 
     rospy.init_node('ps5_ros_bridge', anonymous=False)
     pub = rospy.Publisher(args.cmd_vel_topic, Twist, queue_size=10)

@@ -1,3 +1,5 @@
+
+
 # Rock64 Robot
 
  Packages:     Ubuntu stable (resolute)
@@ -150,7 +152,7 @@ Use ROS topics instead of custom host scripts.
 Host node:
 - `rosrun rosserial_python serial_node.py /dev/ttyACM0` or `/dev/ttyUSB0`
 - `rosparam set /serial_port /dev/ttyACM0`
-- `rosparam set /baud 115200`
+- `rosparam set /baud 9600`
 
 Example node launch:
 
@@ -158,7 +160,7 @@ Example node launch:
 <launch>
   <node name="arduino_serial" pkg="rosserial_python" type="serial_node.py">
     <param name="port" value="/dev/ttyACM0"/>
-    <param name="baud" value="115200"/>
+    <param name="baud" value="9600"/>
   </node>
 </launch>
 ```
@@ -203,7 +205,7 @@ while not rospy.is_shutdown():
 <launch>
   <include file="$(find rosserial_python)/launch/serial_node.launch">
     <arg name="port" value="/dev/ttyACM0"/>
-    <arg name="baud" value="115200"/>
+    <arg name="baud" value="9600"/>
   </include>
 
   <node pkg="esp32_camera_bridge" type="camera_bridge.py" name="esp32_camera_bridge" output="screen">
@@ -217,7 +219,7 @@ while not rospy.is_shutdown():
 
 ```yaml
 serial_port: /dev/ttyACM0
-baudrate: 115200
+baudrate: 9600
 camera_url: http://192.168.4.1/stream
 camera_topic: /camera/image_raw
 ```
@@ -242,6 +244,10 @@ roslaunch robot_bringup rock64_robot.launch
 
 ### 5.2 ESP32-CAM
 1. Put the ESP32 in AP or STA mode.
+   - AP mode: connect Rock64 to `ESP32-CAM-AP` and use `http://192.168.4.1/stream`.
+   - STA mode: set `use_station_mode = true` in `firmware/esp32-vision/src/main.cpp`, and use your local router SSID/password (for example `TELUS4424` and `camncarm2021`) as `sta_ssid`/`sta_password`.
+     Then use the DHCP-assigned IP for the camera stream URL.
+   - Prefer STA mode when the Rock64 and PC are on the same `TELUS4424` network, because this makes the ESP32 camera reachable by the host and PC without switching Wi-Fi.
 2. Have Rock64 join the network or connect directly.
 3. Use a ROS image bridge node to publish `/camera/image_raw`.
 4. Use standard ROS tools like `rqt_image_view` or `rosbag` to inspect and record.
@@ -396,7 +402,7 @@ sudo nmcli device wifi connect "ESP32-CAM-AP" password "robot2026"
    - run `deployment/rock64_setup.sh`, or install `python3`, `python3-pip`, `python3-opencv`, `git`, and `pyserial` manually.
 4. Run the host control smoke test from `ros2_ws/`:
    ```bash
-   python3 host_control/main.py --serial-port /dev/ttyS1 --camera-ip 192.168.4.1
+   python3 host_control/main.py --serial-port /dev/ttyACM0 --camera-ip 192.168.4.1
    ```
 5. Confirm the ESP32-CAM stream and serial port are accessible.
 
@@ -414,6 +420,7 @@ sudo nmcli device wifi connect "ESP32-CAM-AP" password "robot2026"
 - `deployment/rock64_setup.sh` installs required Linux packages and adds the user to the `dialout` group for serial access.
 - The ESP32-CAM firmware creates an AP called `ESP32-CAM-AP` with password `robot2026`.
 - Use `http://192.168.4.1/stream` as the default camera URL when the ESP32-CAM is in AP mode.
+- If you switch the ESP32 to station mode, update the camera URL to the new IP assigned by your router.
 
 ## Next steps
 1. Verify the physical wiring, motor driver power, and common ground.

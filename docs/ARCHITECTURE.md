@@ -72,17 +72,18 @@ The platform is a heterogeneous distributed robotics system:
 
 ### Serial messaging
 
-- Rock64 sends commands to Arduino over UART at **115200 baud**.
-- Command format: `<motorId,direction,speed>`
-  - `motorId`: `0` = both, `1` = right, `2` = left
-  - `direction`: `F`, `B`, or `S`
-  - `speed`: `0`–`255`
+- Rock64 sends commands to Arduino over UART at **9600 baud**.
+- Command format for the current Arduino firmware:
+  - `<MOVE,left_speed,right_speed>` where `left_speed` and `right_speed` are signed values in `-255..255`
+  - `<SERVO,position>` where `position` is `0..180`
 - Arduino enforces a **200 ms heartbeat timeout** and stops motors if packets cease.
 
 ### Vision streaming
 
-- ESP32-CAM hosts a Wi-Fi AP named `ESP32-CAM-AP`.
-- Default stream endpoint: `http://192.168.4.1/stream`
+- ESP32-CAM can run in AP mode or station mode.
+- AP mode: the camera hosts a Wi-Fi AP named `ESP32-CAM-AP` and the default stream endpoint is `http://192.168.4.1/stream`.
+- Station mode: the ESP32 joins the same local router network as the Rock64 and PC. Use the DHCP-assigned IP for the camera stream URL when the camera is on `TELUS4424`.
+- The firmware also exposes a `/status` endpoint for quick health checks.
 - The host uses threaded OpenCV capture to reduce latency and always read the latest frame.
 
 ## Power and safety
@@ -98,8 +99,8 @@ The platform is a heterogeneous distributed robotics system:
 1. Validate hardware wiring and grounds.
 2. Flash and test the Arduino motor firmware.
 3. Flash and verify the ESP32-CAM stream.
-4. Run `ros2_ws/host_control/main.py` to confirm end-to-end integration.
-5. Migrate the host stack into ROS 2 nodes once the hardware path is stable.
+4. Run `ros1_ws` or the ROS1 bridge stack to confirm end-to-end integration.
+5. Once the hardware path is stable, use `ros2_ws/host_control` only as a smoke-test helper or to prototype future ROS 2 integration.
 
 ## Future architecture direction
 

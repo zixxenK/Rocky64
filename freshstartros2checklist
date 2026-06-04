@@ -1,0 +1,76 @@
+## Fresh-start checklist
+
+### 1. Rock64 preflight
+1. SSH into the Rock64 or open a shell there.
+2. Set ROS2 discovery environment:
+   ```powershell
+   $env:ROS_DOMAIN_ID = '0'
+   $env:ROS_LOCALHOST_ONLY = '0'
+   ```
+3. Run preflight:
+   ```powershell
+   Set-Location "c:\Desktop\Rock64 Robot\ros2_ws"
+   python host_control\bringup_preflight.py `
+     --role rock64 `
+     --network-mode station `
+     --expected-ssid TELUS4424 `
+     --camera-ip 192.168.1.153
+   ```
+4. Confirm output shows:
+   - `[ OK ] ROS_DOMAIN_ID is set to 0`
+   - `[ OK ] ROS_LOCALHOST_ONLY is set to 0`
+   - camera `/status` reachable
+   - camera reports `station` mode and SSID `TELUS4424`
+   - `/jpg` endpoint reachable
+   - `/stream` returns a frame
+
+### 2. PC preflight
+1. On your local PC, open PowerShell.
+2. Set ROS2 discovery environment:
+   ```powershell
+   $env:ROS_DOMAIN_ID = '0'
+   $env:ROS_LOCALHOST_ONLY = '0'
+   ```
+3. Run preflight:
+   ```powershell
+>>    Set-Location "c:\Desktop\Rock64 Robot\ros2_ws"
+>>    python host_control\bringup_preflight.py `
+>>      --role pc `
+>>      --network-mode station `
+>>      --expected-ssid TELUS4424 `
+>>      --camera-ip 192.168.1.153 `
+>>      --robot-host 192.168.1.159 `
+   ```
+4. Confirm output shows:
+   - camera endpoint checks OK
+   - `robot-host` resolves or is reachable
+   - no `[FAIL]` conditions
+
+### 3. If both pass, launch ROS2 bringup + teleop
+#### On the Rock64:
+```powershell
+$env:ROS_DOMAIN_ID = '0'
+$env:ROS_LOCALHOST_ONLY = '0'
+Set-Location "c:\Desktop\Rock64 Robot\ros2_ws"
+ros2 launch robot_bringup rock64_bringup.launch.py `
+  robot_namespace:=rock64_1 `
+  serial_port:=/dev/ttyACM0 `
+  baudrate:=115200 `
+  camera_url:=http://<esp32-dhcp-ip>/stream
+```
+
+#### On the PC:
+```powershell
+$env:ROS_DOMAIN_ID = '0'
+$env:ROS_LOCALHOST_ONLY = '0'
+Set-Location "c:\Desktop\Rock64 Robot\ros2_ws"
+ros2 launch robot_bringup keyboard_teleop.launch.py `
+  robot_namespace:=rock64_1
+```
+
+### 4. Quick verification after launch
+- On Rock64: `ros2 topic echo /rock64_1/robot_telemetry`
+- On PC: `ros2 topic list | Select-String rock64_1`
+- Keyboard teleop should publish to `/rock64_1/cmd_vel`
+
+If you want, I can also turn this into a shell script or a PowerShell script for repeatable use.

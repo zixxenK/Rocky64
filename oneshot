@@ -1,0 +1,21 @@
+all bash cmds to fully launch the robot including the ps5 controller with automation to start the teleop node and the joystick node
+#!/bin/bash
+# Source the ROS workspace
+source ~/catkin_ws/devel/setup.bash
+# Launch the robot bringup
+roslaunch robot_bringup bringup.launch &
+# Wait for the bringup to initialize
+sleep 10
+# Launch the teleop node
+roslaunch teleop_twist_keyboard teleop.launch &
+# Wait for the teleop node to initialize
+sleep 5
+# Launch the joystick node
+roslaunch joy joy.launch &
+# Wait for the joystick node to initialize
+sleep 5
+# Launch the PS5 controller node
+roslaunch ps5_controller ps5_controller.launch &
+# Wait for the PS5 controller node to initialize
+sleep 5
+echo "Robot fully launched with PS5 controller, teleop, and joystick nodes."

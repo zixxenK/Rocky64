@@ -1,0 +1,467 @@
+import argparse
+import glob
+import os
+import sys
+import select
+import time
+
+try:
+    import pygame
+except ImportError:
+    pygame = None
+
+try:
+    from evdev import InputDevice, list_devices, ecodes
+except ImportError:
+    InputDevice = None
+    list_devices = None
+    ecodes = None
+
+import rclpy
+from geometry_msgs.msg import Twist
+from rclpy.node import Node
+from rclpy.utilities import remove_ros_args
+from std_msgs.msg import Int16
+
+MAX_RATE_HZ = 20
+DEADZONE = 0.2
+
+# Linux input event codes for controllers
+EV_ABS = ecodes.EV_ABS if ecodes else 3
+EV_KEY = ecodes.EV_KEY if ecodes else 1
+ABS_X = ecodes.ABS_X if ecodes else 0
+ABS_Y = ecodes.ABS_Y if ecodes else 1
+ABS_Z = ecodes.ABS_Z if ecodes else 2
+ABS_RX = ecodes.ABS_RX if ecodes else 3
+ABS_RY = ecodes.ABS_RY if ecodes else 4
+ABS_RZ = ecodes.ABS_RZ if ecodes else 5
+ABS_HAT0X = ecodes.ABS_HAT0X if ecodes else 16
+ABS_HAT0Y = ecodes.ABS_HAT0Y if ecodes else 17
+
+
+def clamp(value, minimum, maximum):
+    return max(minimum, min(maximum, value))
+
+
+def axis_value(value):
+    if abs(value) <= DEADZONE:
+        return 0.0
+    return float(value)
+
+
+def normalize_trigger(value):
+    if value is None:
+        return 0.0
+    if value <= -1.0 + DEADZONE:
+        return 0.0
+    if value >= 0.0:
+        return clamp(float(value), 0.0, 1.0)
+    return clamp((value + 1.0) / 2.0, 0.0, 1.0)
+
+
+def normalize_abs(value, absinfo=None):
+    if absinfo is None or absinfo.max == absinfo.min:
+        return float(value)
+    center = (absinfo.max + absinfo.min) / 2.0
+    normalized = 2.0 * (value - center) / float(absinfo.max - absinfo.min)
+    return clamp(normalized, -1.0, 1.0)
+
+
+def normalize_trigger_axis(value, absinfo=None):
+    if absinfo is None or absinfo.max == absinfo.min:
+        return clamp(float(value), 0.0, 1.0)
+    normalized = float(value - absinfo.min) / float(absinfo.max - absinfo.min)
+    return clamp(normalized, 0.0, 1.0)
+
+
+def compute_speed_scale(l2_value, r2_value, min_scale=0.4, max_scale=1.0):
+    scale = 1.0
+    if l2_value > 0.0:
+        scale = max(min_scale, 1.0 - (1.0 - min_scale) * l2_value)
+    if r2_value > 0.0:
+        scale = max(scale, min(max_scale, 0.7 + 0.3 * r2_value))
+    return clamp(scale, min_scale, max_scale)
+
+
+def is_controller_name(name):
+    lower = (name or '').lower()
+    return any(term in lower for term in ('controller', 'gamepad', 'joystick', 'dual', 'xbox', 'playstation', 'ps5', 'sony'))
+
+
+def list_pygame_joysticks():
+    if pygame is None:
+        return []
+    return [pygame.joystick.Joystick(i).get_name() for i in range(pygame.joystick.get_count())]
+
+
+def scan_evdev_paths():
+    try:
+        return sorted(glob.glob('/dev/input/event*'))
+    except OSError:
+        return []
+
+
+def list_evdev_joysticks():
+    if InputDevice is None:
+        return []
+
+    candidate_paths = []
+    if list_devices is not None:
+        try:
+            candidate_paths = list(list_devices())
+        except Exception:
+            candidate_paths = []
+
+    if not candidate_paths:
+        candidate_paths = scan_evdev_paths()
+
+    controllers = []
+    for path in candidate_paths:
+        try:
+            dev = InputDevice(path)
+        except OSError:
+            continue
+        if is_controller_name(dev.name):
+            controllers.append(f'{path}: {dev.name}')
+    return controllers
+
+
+def list_joysticks():
+    controllers = [f'[pygame] {name}' for name in list_pygame_joysticks()]
+    controllers += [f'[evdev] {name}' for name in list_evdev_joysticks()]
+    return controllers
+
+
+def find_joystick(index=None, name=None):
+    if pygame is None:
+        return None
+
+    count = pygame.joystick.get_count()
+    if count == 0:
+        return None
+
+    if index is not None and 0 <= index < count:
+        joystick = pygame.joystick.Joystick(index)
+        joystick.init()
+        if not name or joystick.get_name() == name:
+            return joystick
+
+    for i in range(count):
+        joystick = pygame.joystick.Joystick(i)
+        joystick.init()
+        if not name or joystick.get_name() == name:
+            return joystick
+
+    return None
+
+
+def find_evdev_device(index=None, name=None):
+    if InputDevice is None:
+        return None
+
+    candidate_paths = []
+    if list_devices is not None:
+        try:
+            candidate_paths = list(list_devices())
+        except Exception:
+            candidate_paths = []
+
+    if not candidate_paths:
+        candidate_paths = scan_evdev_paths()
+
+w = rospy    candidates = []
+    for path in candidate_paths:
+        try:
+            dev = InputDevice(path)
+        except OSError:
+            continue
+        if name and name.lower() in dev.name.lower():
+            return dev
+        if is_controller_name(dev.name):
+            candidates.append(dev)
+
+    if index is not None and 0 <= index < len(candidates):
+        return candidates[index]
+    return candidates[0] if candidates else None
+
+
+def find_controller(index=None, name=None, backend='auto'):
+    if backend in ('auto', 'pygame'):
+        joystick = find_joystick(index=index, name=name)
+        if joystick is not None:
+            return joystick
+    if backend in ('auto', 'evdev'):
+        return find_evdev_device(index=index, name=name)
+    return None
+
+
+def wait_for_joystick(node, index=None, name=None, poll_interval=2.0, backend='auto'):
+    while rclpy.ok():
+        if pygame is not None:
+            pygame.event.pump()
+        controller = find_controller(index=index, name=name, backend=backend)
+        if controller is not None:
+            return controller
+
+        controller_names = list_joysticks()
+        if controller_names:
+            node.get_logger().info('Found controllers: %s, waiting for match...', controller_names)
+        else:
+            node.get_logger().info('No controller found. Plug in or pair your DualSense and wait...')
+        time.sleep(poll_interval)
+
+    return None
+
+
+def build_twist(leftx, lefty, rightx, invert_lefty=False):
+    twist = Twist()
+    forward = -axis_value(lefty) if not invert_lefty else axis_value(lefty)
+    turn = axis_value(rightx)
+    twist.linear.x = forward
+    twist.angular.z = turn
+    return twist
+
+
+class PS5RosBridge(Node):
+    def __init__(self, cmd_vel_topic, camera_servo_topic, leftx_axis, lefty_axis, rightx_axis, l2_axis, r2_axis, invert_lefty, backend='auto'):
+        super().__init__('ps5_ros_bridge')
+        self.cmd_vel_topic = cmd_vel_topic
+        self.camera_servo_topic = camera_servo_topic
+        self.leftx_axis = leftx_axis
+        self.lefty_axis = lefty_axis
+        self.rightx_axis = rightx_axis
+        self.l2_axis = l2_axis
+        self.r2_axis = r2_axis
+        self.invert_lefty = invert_lefty
+        self.backend = backend
+
+        self.pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
+        self.servo_pub = self.create_publisher(Int16, self.camera_servo_topic, 1)
+        self.evdev_device = None
+        self.joystick = None
+        self.abs_state = {}
+        self.abs_info = {}
+        self.hat_state = (0, 0)
+
+    def read_evdev_events(self):
+        if self.evdev_device is None:
+            return
+        r, _, _ = select.select([self.evdev_device.fd], [], [], 0)
+        if not r:
+            return
+        event = self.evdev_device.read_one()
+        while event is not None:
+            if event.type == EV_ABS:
+                self.abs_state[event.code] = event.value
+                if event.code == ABS_HAT0X:
+                    self.hat_state = (event.value, self.hat_state[1])
+                elif event.code == ABS_HAT0Y:
+                    self.hat_state = (self.hat_state[0], event.value)
+            event = self.evdev_device.read_one()
+
+    def get_evdev_axis(self, code):
+        value = self.abs_state.get(code, 0)
+        if code in (ABS_X, ABS_Y, ABS_RX, ABS_RY, ABS_HAT0X, ABS_HAT0Y):
+            return normalize_abs(value, self.abs_info.get(code))
+        if code in (ABS_Z, ABS_RZ):
+            return normalize_trigger_axis(value, self.abs_info.get(code))
+        return float(value)
+
+    def setup_evdev(self):
+        if self.evdev_device is None:
+            return
+        for code in (ABS_X, ABS_Y, ABS_Z, ABS_RX, ABS_RY, ABS_RZ, ABS_HAT0X, ABS_HAT0Y):
+            try:
+                self.abs_info[code] = self.evdev_device.absinfo(code)
+                self.abs_state[code] = self.abs_info[code].value
+            except OSError:
+                self.abs_info[code] = None
+                self.abs_state.setdefault(code, 0)
+        self.hat_state = (
+            self.abs_state.get(ABS_HAT0X, 0),
+            self.abs_state.get(ABS_HAT0Y, 0),
+        )
+
+    def run(self):
+        rospy = self.get_logger()
+        backend = 'pygame'
+        if self.evdev_device is not None:
+            backend = 'evdev'
+        rospy.info('PS5 ROS bridge using %s controller backend.', backend)
+
+        servo_position = 90
+        last_hat = (0, 0)
+        rate = self.create_rate(MAX_RATE_HZ)
+
+        while rclpy.ok():
+            if self.evdev_device is not None:
+                self.read_evdev_events()
+            elif pygame is not None:
+                pygame.event.pump()
+            else:
+                self.get_logger().error('No controller backend is available; install pygame or evdev.')
+                break
+
+            if self.evdev_device is None:
+                if not self.joystick.get_init():
+                    self.joystick = wait_for_joystick(
+                        self,
+                        index=self.index,
+                        name=self.controller_name,
+                        poll_interval=self.poll_interval,
+                        backend=self.backend,
+                    )
+                    if self.joystick is None:
+                        break
+                    self.get_logger().info('Reconnected to controller: %s', self.joystick.get_name())
+
+                leftx = self.joystick.get_axis(self.leftx_axis)
+                lefty = self.joystick.get_axis(self.lefty_axis)
+                rightx = self.joystick.get_axis(self.rightx_axis)
+                l2 = self.joystick.get_axis(self.l2_axis) if self.joystick.get_numaxes() > self.l2_axis else -1.0
+                r2 = self.joystick.get_axis(self.r2_axis) if self.joystick.get_numaxes() > self.r2_axis else -1.0
+                hat = self.joystick.get_hat(0) if self.joystick.get_numhats() > 0 else (0, 0)
+            else:
+                leftx = self.get_evdev_axis(ABS_X)
+                lefty = self.get_evdev_axis(ABS_Y)
+                rightx = self.get_evdev_axis(ABS_RX)
+                l2 = self.get_evdev_axis(ABS_Z)
+                r2 = self.get_evdev_axis(ABS_RZ)
+                hat = self.hat_state
+
+            twist = build_twist(leftx, lefty, rightx, invert_lefty=self.invert_lefty)
+
+            l2_value = normalize_trigger(l2)
+            r2_value = normalize_trigger(r2)
+            speed_scale = compute_speed_scale(l2_value, r2_value)
+            twist.linear.x *= speed_scale
+            twist.angular.z *= speed_scale
+
+            self.get_logger().debug('Speed scale %0.2f from l2=%0.2f r2=%0.2f', speed_scale, l2_value, r2_value)
+            self.pub.publish(twist)
+
+            if hat != last_hat:
+                if hat[0] < 0:
+                    servo_position = max(0, servo_position - 5)
+                    self.servo_pub.publish(Int16(data=servo_position))
+                    self.get_logger().info('Camera servo left -> %d', servo_position)
+                elif hat[0] > 0:
+                    servo_position = min(180, servo_position + 5)
+                    self.servo_pub.publish(Int16(data=servo_position))
+                    self.get_logger().info('Camera servo right -> %d', servo_position)
+                last_hat = hat
+
+            rate.sleep()
+
+    def initialize_controller(self, index=None, name=None, poll_interval=2.0):
+        self.index = index
+        self.controller_name = name or None
+        self.poll_interval = poll_interval
+
+        if self.backend in ('auto', 'evdev'):
+            self.evdev_device = find_evdev_device(index=index, name=self.controller_name)
+            if self.evdev_device is not None:
+                self.setup_evdev()
+                return
+            if self.backend == 'evdev':
+                self.get_logger().warning('No evdev controller found; waiting for evdev device.')
+
+        if self.backend in ('auto', 'pygame'):
+            self.joystick = find_joystick(index=index, name=self.controller_name)
+
+        if self.joystick is None:
+            self.joystick = wait_for_joystick(
+                self,
+                index=index,
+                name=self.controller_name,
+                poll_interval=poll_interval,
+                backend=self.backend,
+            )
+
+        if isinstance(self.joystick, InputDevice):
+            self.evdev_device = self.joystick
+            self.joystick = None
+            self.setup_evdev()
+            return
+
+        if self.joystick is None and self.evdev_device is None:
+            self.get_logger().error('No controller found for backend %s.', self.backend)
+
+
+def main(argv=None):
+    rclpy.init(args=argv)
+    ros_args = remove_ros_args(sys.argv)
+    parser = argparse.ArgumentParser(description='PS5 DualSense to ROS2 cmd_vel bridge')
+    parser.add_argument('--cmd-vel-topic', default='/cmd_vel')
+    parser.add_argument('--camera-servo-topic', default='/camera_servo')
+    parser.add_argument('--joystick-index', type=int, default=None)
+    parser.add_argument('--controller-name', default=None)
+    parser.add_argument('--backend', choices=['auto', 'pygame', 'evdev'], default='auto',
+                        help='Controller backend to use when available.')
+    parser.add_argument('--poll-interval', type=float, default=2.0)
+    parser.add_argument('--leftx-axis', type=int, default=0)
+    parser.add_argument('--lefty-axis', type=int, default=1)
+    parser.add_argument('--rightx-axis', type=int, default=2)
+    parser.add_argument('--l2-axis', type=int, default=4)
+    parser.add_argument('--r2-axis', type=int, default=5)
+    parser.add_argument('--invert-lefty', action='store_true')
+    parser.add_argument('--list-controllers', action='store_true')
+    args, unknown = parser.parse_known_args(ros_args[1:])
+
+    global pygame
+    if pygame is not None:
+        try:
+            if 'SDL_VIDEODRIVER' not in os.environ:
+                os.environ['SDL_VIDEODRIVER'] = 'dummy'
+            pygame.init()
+            pygame.joystick.init()
+        except Exception as e:
+            print('pygame initialization failed:', e)
+            pygame = None
+
+    if pygame is None and InputDevice is None:
+        print('Missing dependency: pip install pygame evdev')
+        return
+
+    if args.list_controllers:
+        print('pygame backend available:', 'yes' if pygame is not None else 'no')
+        print('evdev backend available:', 'yes' if InputDevice is not None else 'no')
+        controllers = list_joysticks()
+        if controllers:
+            print('Connected controllers:')
+            for i, name in enumerate(controllers):
+                print(f'  [{i}] {name}')
+        else:
+            print('No controllers detected.')
+        if InputDevice is not None:
+            event_paths = scan_evdev_paths()
+            if event_paths:
+                print('Detected /dev/input paths:')
+                for path in event_paths:
+                    print(f'  {path}')
+        return
+
+    node = PS5RosBridge(
+        cmd_vel_topic=args.cmd_vel_topic,
+        camera_servo_topic=args.camera_servo_topic,
+        leftx_axis=args.leftx_axis,
+        lefty_axis=args.lefty_axis,
+        rightx_axis=args.rightx_axis,
+        l2_axis=args.l2_axis,
+        r2_axis=args.r2_axis,
+        invert_lefty=args.invert_lefty,
+        backend=args.backend,
+    )
+    node.initialize_controller(index=args.joystick_index, name=args.controller_name or None, poll_interval=args.poll_interval)
+
+    try:
+        node.run()
+    finally:
+        if pygame is not None:
+            pygame.quit()
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

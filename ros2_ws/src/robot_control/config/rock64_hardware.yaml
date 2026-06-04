@@ -1,0 +1,20 @@
+arduino_serial_bridge:
+  ros__parameters:
+    serial_port: /dev/ttyACM0
+    baud_rate: 115200
+    timeout: 0.1
+    retry_delay: 5.0
+    # VID 0x2341 = Arduino LLC (9025 decimal).  Set arduino_pid for board-specific match.
+    arduino_vid: 9025
+    arduino_pid: -1       # -1 = accept any PID for the given VID
+    watchdog_timeout_ms: 500.0
+    cmd_vel_topic: cmd_vel
+    camera_servo_topic: camera_servo
+    telemetry_topic: robot_telemetry
+
+esp32_camera_bridge:
+  ros__parameters:
+    camera_url: http://192.168.4.1/stream
+    camera_topic: camera/image_raw
+    frame_id: camera
+    publish_rate: 10.0

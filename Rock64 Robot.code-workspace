@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "mcu-motors",
+			"path": "firmware/mcu-motors"
+		},
+		{
+			"path": "firmware/esp32-vision"
+		}
+	],
+	"settings": {}
+}

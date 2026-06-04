@@ -10,7 +10,7 @@ def build_argument_parser():
     )
     parser.add_argument(
         "--serial-port",
-        default="/dev/ttyS1",
+        default="/dev/ttyACM0",
         help="Serial port for Arduino Uno connection",
     )
     parser.add_argument(

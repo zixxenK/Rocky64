@@ -1,10 +1,6 @@
-#include <SoftwareSerial.h>
 #include <Wire.h>
 
-// SoftwareSerial pins for Rock64 communication
-static const uint8_t kSoftRxPin = 2;  // Arduino receives from Rock64
-static const uint8_t kSoftTxPin = 4;  // Arduino transmits to Rock64
-static const long kSerialBaud = 9600;
+static const long kSerialBaud = 115200;
 
 // MPU6050 I2C address and registers
 static const uint8_t kMPU6050Address = 0x68;
@@ -22,8 +18,6 @@ static const uint8_t kRightDirPinB = 11;
 
 // Telemetry interval
 static const unsigned long kTelemetryIntervalMs = 50;
-
-SoftwareSerial rock64Serial(kSoftRxPin, kSoftTxPin);
 
 char incomingBuffer[64];
 uint8_t bufferIndex = 0;
@@ -46,7 +40,7 @@ void setup() {
   Wire.begin();
   initializeMPU6050();
 
-  rock64Serial.begin(kSerialBaud);
+  Serial.begin(kSerialBaud);
   sendDebug("READY\n");
 }
 
@@ -68,12 +62,12 @@ void initializeMPU6050() {
 }
 
 void sendDebug(const char* message) {
-  rock64Serial.print(message);
+  Serial.print(message);
 }
 
 void readSerialPackets() {
-  while (rock64Serial.available() > 0) {
-    char c = rock64Serial.read();
+  while (Serial.available() > 0) {
+    char c = Serial.read();
     if (c == '<') {
       packetInProgress = true;
       bufferIndex = 0;
@@ -94,23 +88,51 @@ void readSerialPackets() {
 }
 
 void processPacket(const char* packet) {
-  if (packet == nullptr || packet[0] == '\0') {
-    return;
-  }
+  if (packet == nullptr) return;
 
-  const char* token = strtok((char*)packet, ",");
-  if (token == nullptr) {
-    return;
-  }
+  // We make a working copy because strtok modifies the input string
+  char buffer[64];
+  strncpy(buffer, packet, sizeof(buffer) - 1);
+  buffer[sizeof(buffer) - 1] = '\0';
 
-  if (strcmp(token, "MOVE") == 0) {
-    const char* leftValue = strtok(nullptr, ",");
-    const char* rightValue = strtok(nullptr, ",");
-    if (leftValue != nullptr && rightValue != nullptr) {
-      int leftSpeed = atoi(leftValue);
-      int rightSpeed = atoi(rightValue);
-      applyDriveCommand(leftSpeed, rightSpeed);
+  char* token1 = strtok(buffer, ",");
+  char* token2 = strtok(nullptr, ",");
+  char* token3 = strtok(nullptr, ",");
+
+  // Ensure all parts exist before processing
+  if (token1 != nullptr && token2 != nullptr && token3 != nullptr) {
+    int id = atoi(token1);
+    char type = token2[0];
+    int value = atoi(token3);
+
+    // Logic: Map the command 'type' to motor behavior
+    int leftSpeed = 0;
+    int rightSpeed = 0;
+
+    switch (type) {
+      case 'F': // Forward
+        leftSpeed = value;
+        rightSpeed = value;
+        break;
+      case 'B': // Backward
+        leftSpeed = -value;
+        rightSpeed = -value;
+        break;
+      case 'L': // Spin Left
+        leftSpeed = -value;
+        rightSpeed = value;
+        break;
+      case 'R': // Spin Right
+        leftSpeed = value;
+        rightSpeed = -value;
+        break;
+      default:
+        leftSpeed = 0;
+        rightSpeed = 0;
+        break;
     }
+
+    applyDriveCommand(leftSpeed, rightSpeed);
   }
 }
 
@@ -142,19 +164,19 @@ void sendTelemetry() {
   int16_t accelX, accelY, accelZ, gyroX, gyroY, gyroZ;
   readMPU6050(accelX, accelY, accelZ, gyroX, gyroY, gyroZ);
 
-  rock64Serial.print("TELEMETRY,");
-  rock64Serial.print(gyroX);
-  rock64Serial.print(",");
-  rock64Serial.print(gyroY);
-  rock64Serial.print(",");
-  rock64Serial.print(gyroZ);
-  rock64Serial.print(",");
-  rock64Serial.print(accelX);
-  rock64Serial.print(",");
-  rock64Serial.print(accelY);
-  rock64Serial.print(",");
-  rock64Serial.print(accelZ);
-  rock64Serial.print("\n");
+  Serial.print("TELEMETRY,");
+  Serial.print(gyroX);
+  Serial.print(",");
+  Serial.print(gyroY);
+  Serial.print(",");
+  Serial.print(gyroZ);
+  Serial.print(",");
+  Serial.print(accelX);
+  Serial.print(",");
+  Serial.print(accelY);
+  Serial.print(",");
+  Serial.print(accelZ);
+  Serial.print("\n");
 }
 
 void readMPU6050(int16_t &accelX, int16_t &accelY, int16_t &accelZ, int16_t &gyroX, int16_t &gyroY, int16_t &gyroZ) {

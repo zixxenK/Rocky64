@@ -1,9 +1,28 @@
+import glob
+import os
 import serial
 from serial import SerialException
 
 
+def _select_serial_port(port: str) -> str:
+    if port and os.path.exists(port):
+        return port
+
+    candidates = []
+    for pattern in ['/dev/ttyACM*', '/dev/ttyUSB*']:
+        candidates.extend(sorted(glob.glob(pattern)))
+
+    if candidates:
+        print(
+            f'Configured serial port {port} not found. Auto-selecting {candidates[0]} from {candidates}'
+        )
+        return candidates[0]
+
+    return port
+
+
 class TelemetrySerialBridge:
-    def __init__(self, port="/dev/ttyS1", baudrate=115200, timeout=0.05):
+    def __init__(self, port="/dev/ttyACM0", baudrate=115200, timeout=0.05):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
@@ -11,6 +30,7 @@ class TelemetrySerialBridge:
         self.open()
 
     def open(self):
+        self.port = _select_serial_port(self.port)
         try:
             self.connection = serial.Serial(
                 self.port,

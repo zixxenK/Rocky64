@@ -1,0 +1,13 @@
+The ESP32-S3 Wi-Fi/camera module is connected to the Rock64 using a USB-A to USB-C adapter. It provides the robot's network and camera connectivity, and is intended for remote control, programming, and video streaming.
+
+A power bank supplies the Rock64 through its 3.5mm barrel jack. This is the primary power source for the Rock64, and the Rock64 in turn powers the Arduino Uno when the USB-A cable is connected.
+
+The Rock64 connects to the Arduino Uno R3 with a USB-A cable. That USB connection provides the Uno with power and a serial data link for ROS-to-Arduino motor control.
+
+The Arduino Uno is stacked with the SmartCar Shield v1.1. The SmartCar shield drives the left and right motors and provides the servo connection for the ultrasonic sensor.
+
+The ultrasonic servo is mounted on the SmartCar shield's sensor/servo port. The shield provides power and signal for the servo, and the active firmware is configured to use the Arduino pin controlled by that shield servo header.
+
+the MPU-6050 IMU board is seated on top of the SmartCar Shield v1.1. It connects to the Arduino Uno through the shield's I2C lines, delivering acceleration and angular velocity data for future navigation or stabilization features.
+
+The SmartCar Shield v1.1 is installed on top of the Arduino Uno R3. This gives a compact electronics stack with the motor driver, servo port, and sensor connectors all routed through the shield.

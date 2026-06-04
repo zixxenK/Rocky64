@@ -1,5 +1,6 @@
 #include "esp_camera.h"
 #include <WiFi.h>
+#include <WiFiUdp.h> // <-- INJECTED: Missing library for network packets
 #include <WebServer.h>
 #include <esp_timer.h>
 #include <img_converters.h>
@@ -7,21 +8,39 @@
 #define CAMERA_MODEL_ESP32S3_EYE
 #include "camera_pins.h"
 
-const char* ssid = "ESP32-CAM-AP";
-const char* password = "robot2026";
+const char* ap_ssid = "ESP32-CAM-AP";
+const char* ap_password = "robot2026";
+
+const bool use_station_mode = true;
+const char* sta_ssid = "TELUS4424";
+const char* sta_password = "camncarm2021";
+
+// --- INJECTED: UDP Network Variables ---
+WiFiUDP udp;
+const unsigned int localUdpPort = 8888; // Listens to the port your ROS2 node targets
+char udpPacketBuffer[255]; 
 
 WebServer server(80);
+bool wifiConnected = false;
+bool accessPointActive = false;
+unsigned long lastWiFiReconnect = 0;
+const unsigned long wifiReconnectInterval = 10000;
 
+// Function Prototypes
 void startCameraServer();
+bool startWiFiStation();
+IPAddress startAccessPoint();
+void onWiFiEvent(WiFiEvent_t event);
+void handleStatus();
+void handleRoot();
+void handleSingleJPG();
+bool handleJPGStream();
 
 void setup() {
-  Serial.begin(115200);
-  delay(1000);
+  Serial.begin(115200); // This talks down the wire to the Uno
   Serial.println();
-  Serial.println("Starting ESP32-S3 camera firmware...");
+  Serial.println("Starting ESP32-S3 camera + UDP Bridge firmware...");
   Serial.println("Camera model: ESP32S3_EYE");
-  Serial.println("Using COM4 serial monitor workflow. Expect AP: ");
-  Serial.println(ssid);
 
   camera_config_t config;
   memset(&config, 0, sizeof(config));
@@ -43,10 +62,10 @@ void setup() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 16000000;
+  config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size = FRAMESIZE_SVGA;
-  config.jpeg_quality = 12;
+  config.frame_size = FRAMESIZE_QVGA;
+  config.jpeg_quality = 20;
   config.fb_count = 2;
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.grab_mode = CAMERA_GRAB_LATEST;
@@ -54,32 +73,113 @@ void setup() {
   if (psramFound()) {
     config.fb_count = 2;
     config.fb_location = CAMERA_FB_IN_PSRAM;
-    Serial.println("PSRAM found: using 2 frame buffers");
   } else {
     config.fb_count = 1;
     config.fb_location = CAMERA_FB_IN_DRAM;
-    config.frame_size = FRAMESIZE_VGA;
-    Serial.println("PSRAM not found: using 1 frame buffer and VGA resolution");
+    config.frame_size = FRAMESIZE_QVGA;
   }
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x\n", err);
-    Serial.println("Check camera pin mapping, model selection, and power supply.");
     return;
   }
 
-  Serial.println("Camera initialized successfully.");
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(ssid, password);
-  IPAddress ip = WiFi.softAPIP();
-  Serial.printf("ESP32-CAM AP started: http://%s\n", ip.toString().c_str());
+  if (use_station_mode && strlen(sta_ssid) > 0 && strlen(sta_password) > 0) {
+    if (startWiFiStation()) {
+      // Connect UDP once Wi-Fi is green-lit
+      udp.begin(localUdpPort);
+    } else {
+      startAccessPoint();
+      udp.begin(localUdpPort);
+    }
+  } else {
+    startAccessPoint();
+    udp.begin(localUdpPort);
+  }
 
   startCameraServer();
 }
 
+bool startWiFiStation() {
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_STA);
+  accessPointActive = false;
+  WiFi.setHostname("esp32-cam");
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  WiFi.setAutoReconnect(true);
+  WiFi.setSleep(false);
+  WiFi.onEvent(onWiFiEvent);
+  WiFi.begin(sta_ssid, sta_password);
+
+  const int max_attempts = 30;
+  int attempt = 0;
+  while (WiFi.status() != WL_CONNECTED && attempt < max_attempts) {
+    delay(1000);
+    attempt++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiConnected = true;
+    accessPointActive = false;
+    return true;
+  }
+  return false;
+}
+
+void onWiFiEvent(WiFiEvent_t event) {
+  if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+    wifiConnected = true;
+    accessPointActive = false;
+    udp.begin(localUdpPort); // Double check UDP restarts on fresh IP
+  } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    wifiConnected = false;
+    WiFi.reconnect();
+  }
+}
+
+IPAddress startAccessPoint() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ap_ssid, ap_password);
+  accessPointActive = true;
+  wifiConnected = false;
+  return WiFi.softAPIP();
+}
+
 void loop() {
   server.handleClient();
+  
+  // --- INJECTED: Read ROS2 packets from Wi-Fi and forward directly to Uno ---
+  int packetSize = udp.parsePacket();
+  if (packetSize) {
+    int len = udp.read(udpPacketBuffer, 255);
+    if (len > 0) {
+      udpPacketBuffer[len] = '\0';
+      // This sends '<1,B,85>\n' physically down the TX pin straight to the Uno's RX pin!
+      Serial.print(udpPacketBuffer); 
+    }
+  }
+
+  yield();
+
+  if (use_station_mode && !wifiConnected && millis() - lastWiFiReconnect >= wifiReconnectInterval) {
+    lastWiFiReconnect = millis();
+    if (WiFi.status() != WL_CONNECTED) {
+      WiFi.reconnect();
+    }
+  }
+}
+
+// Set up server routes and start the server
+void startCameraServer() {
+  server.on("/", handleRoot);
+  server.on("/stream", []() {
+    handleJPGStream();
+  });
+  server.on("/capture", handleSingleJPG);
+  server.on("/status", handleStatus);
+  server.begin();
+  Serial.println("HTTP Web Server started successfully.");
 }
 
 String getContentType(String filename) {
@@ -93,45 +193,50 @@ String getContentType(String filename) {
 
 bool handleJPGStream(void) {
   WiFiClient client = server.client();
-  String response = "HTTP/1.1 200 OK\r\n";
-  response += "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n";
-  server.sendContent(response);
-
-  while (true) {
+  if (!client || !client.connected()) return false;
+  client.print("HTTP/1.1 200 OK\r\n");
+  client.print("Content-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n");
+  while (client.connected()) {
     camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("Camera capture failed");
-      return false;
-    }
-
-    response = "--frame\r\n";
-    response += "Content-Type: image/jpeg\r\n";
-    response += "Content-Length: " + String(fb->len) + "\r\n\r\n";
-    server.sendContent(response);
-    server.client().write(fb->buf, fb->len);
-    server.sendContent("\r\n");
+    if (!fb) return false;
+    client.print("--frame\r\n");
+    client.print("Content-Type: image/jpeg\r\n");
+    client.print("Content-Length: ");
+    client.print(fb->len);
+    client.print("\r\n\r\n");
+    client.write(fb->buf, fb->len);
+    client.print("\r\n");
     esp_camera_fb_return(fb);
-
-    if (!client.connected()) {
-      break;
-    }
+    if (!client.connected()) break;
+    delay(1);
+    yield();
   }
-
   return true;
 }
 
 void handleRoot() {
-  String html = "<html><head><title>ESP32-CAM Stream</title></head><body>";
-  html += "<h1>ESP32-CAM MJPEG Stream</h1>";
-  html += "<img src=\"/stream\" width=640 />";
-  html += "</body></html>";
+  String html = "<html><head><title>ESP32-CAM Stream</title></head><body><h1>ESP32-CAM MJPEG Stream</h1><img src=\"/stream\" width=640 /></body></html>";
   server.send(200, "text/html", html);
 }
 
-void startCameraServer() {
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/stream", HTTP_GET, []() {
-    handleJPGStream();
-  });
-  server.begin();
+void handleSingleJPG() {
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) { server.send(500, "text/plain", "Capture failed"); return; }
+  server.sendHeader("Content-Disposition", "inline; filename=capture.jpg");
+  server.send_P(200, "image/jpeg", (const char*)fb->buf, fb->len);
+  esp_camera_fb_return(fb);
+}
+
+void handleStatus() {
+  String mode = wifiConnected ? "station_connected" : "access_point"; 
+  String activeSsid = wifiConnected ? sta_ssid : ap_ssid; 
+  IPAddress ip = wifiConnected ? WiFi.localIP() : WiFi.softAPIP();
+  
+  String json = "{";
+  json += "\"wifi_mode\":\"" + mode + "\",";
+  json += "\"ssid\":\"" + activeSsid + "\",";
+  json += "\"ip\":\"" + ip.toString() + "\"";
+  json += "}";
+  
+  server.send(200, "application/json", json);
 }

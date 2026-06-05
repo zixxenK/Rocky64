@@ -1,4 +1,5 @@
 import re
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -148,66 +149,125 @@ class SingleJpgReader:
 
 
 class CameraStream:
-    def __init__(self, url: str, fallback_failures: int = 3):
+    """Thread-safe camera reader with MJPEG → JPEG fallback.
+
+    All network I/O runs on a background thread so callers never block
+    on a slow or unreachable camera.
+    """
+
+    def __init__(self, url: str, fallback_failures: int = 3, logger=None):
         self.url = url
         self.reader = None
         self.fallback = None
         self.failure_count = 0
         self.fallback_failures = fallback_failures
-        self._open_http_reader()
+        self._logger = logger
 
-    def _open_http_reader(self):
+        self._lock = threading.Lock()
+        self._latest_frame = None
+        self._latest_grabbed = False
+        self._active = True
+        self._thread = threading.Thread(target=self._reader_loop, daemon=True)
+        self._thread.start()
+
+    def _log_info(self, msg: str) -> None:
+        if self._logger:
+            self._logger.info(msg)
+        else:
+            print(msg)
+
+    def _log_warn(self, msg: str) -> None:
+        if self._logger:
+            self._logger.warning(msg)
+        else:
+            print(f'WARN: {msg}')
+
+    def _open_http_reader(self) -> bool:
         try:
             self.reader = MjpegHttpReader(self.url)
+            self._log_info(f'MJPEG stream connected: {self.url}')
+            return True
         except Exception as exc:
             self.reader = None
-            print(f'Failed to open HTTP MJPEG reader for {self.url}: {exc}')
+            self._log_warn(f'Failed to open MJPEG stream {self.url}: {exc}')
+            return False
 
     def _open_fallback_reader(self):
         if self.fallback is not None:
             return
         try:
             self.fallback = SingleJpgReader(self.url)
-            print(f'Using JPEG snapshot fallback for camera URL: {self.fallback.url}')
+            self._log_info(f'Using JPEG snapshot fallback: {self.fallback.url}')
         except Exception as exc:
             self.fallback = None
-            print(f'Failed to initialize JPEG fallback for {self.url}: {exc}')
+            self._log_warn(f'Failed to initialize JPEG fallback for {self.url}: {exc}')
+
+    def _reader_loop(self) -> None:
+        """Background loop: keep trying to read frames, reconnecting as needed."""
+        reconnect_delay = 2.0
+
+        while self._active:
+            # Ensure we have at least one reader open
+            if self.reader is None and self.fallback is None:
+                if not self._open_http_reader():
+                    self._open_fallback_reader()
+                if self.reader is None and self.fallback is None:
+                    time.sleep(reconnect_delay)
+                    continue
+
+            grabbed, frame = False, None
+
+            if self.reader is not None:
+                try:
+                    grabbed, frame = self.reader.read_frame()
+                except Exception as exc:
+                    self._log_warn(f'MJPEG reader error: {exc}')
+                    self.reader.close()
+                    self.reader = None
+
+            if not grabbed and self.fallback is None:
+                self.failure_count += 1
+                if self.failure_count >= self.fallback_failures:
+                    self._open_fallback_reader()
+
+            if not grabbed and self.fallback is not None:
+                try:
+                    grabbed, frame = self.fallback.read_frame()
+                except Exception as exc:
+                    self._log_warn(f'JPEG fallback error: {exc}')
+                    grabbed, frame = False, None
+
+            if grabbed and frame is not None:
+                self.failure_count = 0
+                with self._lock:
+                    self._latest_frame = frame
+                    self._latest_grabbed = True
+            else:
+                self.failure_count += 1
+                if self.failure_count >= self.fallback_failures * 2:
+                    # Both readers failed repeatedly — tear down and retry
+                    if self.reader is not None:
+                        self.reader.close()
+                        self.reader = None
+                    self.fallback = None
+                    self.failure_count = 0
+                    time.sleep(reconnect_delay)
+                else:
+                    time.sleep(0.05)
 
     def read(self):
-        if self.reader is not None:
-            try:
-                grabbed, frame = self.reader.read_frame()
-                if grabbed and frame is not None:
-                    self.failure_count = 0
-                    return True, frame
-                self.failure_count += 1
-                if self.failure_count >= self.fallback_failures:
-                    self._open_fallback_reader()
-                return False, None
-            except Exception as exc:
-                print(f'HTTP MJPEG reader error: {exc}')
-                self.reader.close()
-                self.reader = None
-                self.failure_count += 1
-                if self.failure_count >= self.fallback_failures:
-                    self._open_fallback_reader()
-                time.sleep(1.0)
-                return False, None
-
-        if self.fallback is None:
-            self._open_fallback_reader()
-
-        if self.fallback is not None:
-            try:
-                return self.fallback.read_frame()
-            except Exception as exc:
-                print(f'JPEG snapshot fallback error: {exc}')
-                time.sleep(1.0)
-                return False, None
-
-        return False, None
+        """Return the latest frame (thread-safe, non-blocking)."""
+        with self._lock:
+            if self._latest_grabbed and self._latest_frame is not None:
+                frame = self._latest_frame
+                self._latest_grabbed = False
+                return True, frame
+            return False, None
 
     def release(self):
+        self._active = False
+        if self._thread.is_alive():
+            self._thread.join(timeout=2.0)
         if self.reader is not None:
             self.reader.close()
             self.reader = None
@@ -228,7 +288,7 @@ class ESP32CameraBridge(Node):
 
         self.bridge = CvBridge()
         self.publisher = self.create_publisher(Image, self.camera_topic, 1)
-        self.stream = CameraStream(self.camera_url)
+        self.stream = CameraStream(self.camera_url, logger=self.get_logger())
         self.timer = self.create_timer(1.0 / self.publish_rate, self._timer_callback)
 
         self.get_logger().info(f'Starting ESP32 camera bridge to {self.camera_url}')
@@ -236,7 +296,6 @@ class ESP32CameraBridge(Node):
     def _timer_callback(self):
         grabbed, frame = self.stream.read()
         if not grabbed or frame is None:
-            self.get_logger().warning('No frame received from camera stream')
             return
 
         try:

@@ -53,11 +53,11 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('robot_namespace', default_value='rock64_1'),
-        DeclareLaunchArgument('serial_port', default_value='/dev/ttyACM0'),
+        DeclareLaunchArgument('serial_port', default_value='/dev/ttyUSB0'),
         DeclareLaunchArgument('baud_rate', default_value='115200'),
         DeclareLaunchArgument('baudrate', default_value=''),
         DeclareLaunchArgument(
-            'camera_url', default_value='http://192.168.4.1/stream'
+            'camera_url', default_value='http://192.168.1.153/stream'
         ),
         DeclareLaunchArgument(
             'camera_topic', default_value='camera/image_raw'

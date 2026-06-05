@@ -1,7 +1,9 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -10,6 +12,8 @@ def generate_launch_description():
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
     camera_servo_topic = LaunchConfiguration('camera_servo_topic')
     teleop_mode = LaunchConfiguration('teleop_mode')
+    show_stream = LaunchConfiguration('show_stream')
+    camera_topic = LaunchConfiguration('camera_topic')
     joystick_index = LaunchConfiguration('joystick_index')
     controller_name = LaunchConfiguration('controller_name')
     poll_interval = LaunchConfiguration('poll_interval')
@@ -24,6 +28,8 @@ def generate_launch_description():
         DeclareLaunchArgument('cmd_vel_topic', default_value='cmd_vel'),
         DeclareLaunchArgument('camera_servo_topic', default_value='camera_servo'),
         DeclareLaunchArgument('teleop_mode', default_value='keyboard_servo'),
+        DeclareLaunchArgument('show_stream', default_value='true'),
+        DeclareLaunchArgument('camera_topic', default_value='camera/image_raw'),
         DeclareLaunchArgument('joystick_index', default_value='0'),
         DeclareLaunchArgument('controller_name', default_value=''),
         DeclareLaunchArgument('poll_interval', default_value='2.0'),
@@ -55,5 +61,14 @@ def generate_launch_description():
                 'l2_axis': l2_axis,
                 'r2_axis': r2_axis,
             }.items(),
+        ),
+        Node(
+            package='robot_control',
+            executable='stream_viewer',
+            namespace=robot_namespace,
+            name='stream_viewer',
+            output='screen',
+            remappings=[('image', camera_topic)],
+            condition=IfCondition(show_stream),
         ),
     ])

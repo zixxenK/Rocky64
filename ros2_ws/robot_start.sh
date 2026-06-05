@@ -79,9 +79,9 @@ banner() {
 # ---------------------------------------------------------------------------
 ROLE="rock64"
 WORKSPACE=""
-CAMERA_IP="192.168.0.152"
+CAMERA_IP="192.168.1.153"
 CAMERA_PORT="80"
-SERIAL_PORT="/dev/ttyACM0"
+SERIAL_PORT="/dev/ttyUSB0"
 BAUD_RATE="115200"
 ROBOT_NAMESPACE="rock64_1"
 TELEOP_MODE="keyboard_servo"
@@ -308,6 +308,16 @@ info "robot_bringup, robot_control, robot_description — all visible. ✓"
 CURRENT_STEP="[7/7] running preflight checks"
 export ROS_DOMAIN_ID="$DOMAIN_ID"
 export ROS_LOCALHOST_ONLY=0
+
+# Enable unicast DDS peer discovery (multicast is often blocked on WiFi)
+_dds_xml="$(ros2 pkg prefix robot_control 2>/dev/null)/share/robot_control/config/fastdds_unicast.xml"
+if [[ -f "$_dds_xml" ]]; then
+  export FASTRTPS_DEFAULT_PROFILES_FILE="$_dds_xml"
+  info "Discovery: unicast peers via $FASTRTPS_DEFAULT_PROFILES_FILE"
+else
+  warn "fastdds_unicast.xml not found — using default multicast discovery."
+  warn "If the PC cannot see the robot's topics, create/install fastdds_unicast.xml."
+fi
 
 if [[ "$SKIP_PREFLIGHT" == "1" ]]; then
   info "[7/7] Skipping Python preflight (--skip-preflight)"

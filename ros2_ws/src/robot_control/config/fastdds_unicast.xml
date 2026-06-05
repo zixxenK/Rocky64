@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  FastDDS unicast peer discovery for Rock64 Robot.
+
+  Default ROS 2 DDS uses multicast (239.255.0.1:7400) which many WiFi
+  routers silently drop.  This profile replaces multicast with explicit
+  unicast peer addresses so the Rock64 and the operator PC can always
+  discover each other.
+
+  Usage:
+    export FASTRTPS_DEFAULT_PROFILES_FILE=/path/to/fastdds_unicast.xml
+
+  robot_start.sh sets this automatically when the file is found next to
+  the hardware YAML.
+
+  Edit the <address> entries below to match your network.  Add more
+  <locator> blocks for additional machines.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <participant profile_name="unicast_peer_discovery" is_default_profile="true">
+      <rtps>
+        <builtin>
+          <metatrafficUnicastLocatorList>
+            <locator>
+              <udpv4>
+                <address>0.0.0.0</address>
+              </udpv4>
+            </locator>
+          </metatrafficUnicastLocatorList>
+          <initialPeersList>
+            <!-- Rock64 (robot) -->
+            <locator>
+              <udpv4>
+                <address>192.168.1.159</address>
+              </udpv4>
+            </locator>
+            <!-- Operator PC (adjust to your PC's LAN IP) -->
+            <locator>
+              <udpv4>
+                <address>192.168.1.81</address>
+              </udpv4>
+            </locator>
+          </initialPeersList>
+        </builtin>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

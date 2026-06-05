@@ -1,11 +1,12 @@
 arduino_serial_bridge:
   ros__parameters:
-    serial_port: /dev/ttyACM0
+    serial_port: /dev/ttyUSB0
     baud_rate: 115200
     timeout: 0.1
     retry_delay: 5.0
-    # VID 0x2341 = Arduino LLC (9025 decimal).  Set arduino_pid for board-specific match.
-    arduino_vid: 9025
+    # VID 0x1A86 = CH340 USB-serial (common on Arduino clones).  Original
+    # Arduino LLC VID is 0x2341 (9025); change if using a genuine Uno.
+    arduino_vid: 6790
     arduino_pid: -1       # -1 = accept any PID for the given VID
     watchdog_timeout_ms: 500.0
     cmd_vel_topic: cmd_vel
@@ -14,7 +15,9 @@ arduino_serial_bridge:
 
 esp32_camera_bridge:
   ros__parameters:
-    camera_url: http://192.168.4.1/stream
+    # Station mode: use the ESP32's DHCP-assigned IP on your LAN.
+    # AP mode: use http://192.168.4.1/stream instead.
+    camera_url: http://192.168.1.153/stream
     camera_topic: camera/image_raw
     frame_id: camera
     publish_rate: 10.0

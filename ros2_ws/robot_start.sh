@@ -38,7 +38,32 @@ set -eo pipefail
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-fail()  { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+# fail() prints a clean message and exits; disable the ERR trap so the
+# generic fatal banner doesn't fire on top of an already-explained error.
+fail()  { trap - ERR; echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || fail "Required command '$1' not found in PATH.${2:+  $2}"
+}
+
+# Track the current phase so unexpected failures report where they happened.
+CURRENT_STEP="initialising"
+on_error() {
+  local exit_code=$?
+  local line="${1:-?}"
+  trap - ERR
+  echo "" >&2
+  echo -e "${RED}==========================================================${NC}" >&2
+  echo -e "${RED}[FATAL] Startup failed during: ${CURRENT_STEP}${NC}" >&2
+  echo -e "${RED}        exit code ${exit_code} (line ${line})${NC}" >&2
+  echo -e "${RED}        command: ${BASH_COMMAND}${NC}" >&2
+  echo -e "${RED}==========================================================${NC}" >&2
+  echo "Tips:" >&2
+  echo "  - Build problems? re-run with --skip-build (after a good build)" >&2
+  echo "  - See all options: ./robot_start.sh --help" >&2
+  exit "$exit_code"
+}
+trap 'on_error $LINENO' ERR
 
 banner() {
   echo ""
@@ -110,7 +135,7 @@ _detect_network_mode() {
     else
       echo "ap"
     fi
-  elif command -w iwlist >/dev/null 2>&1; then
+  elif command -v iwlist >/dev/null 2>&1; then
     if iwlist scan 2>/dev/null | grep -q "${EXPECTED_SSID}"; then
       echo "station"
     else
@@ -208,15 +233,21 @@ echo ""
 # ---------------------------------------------------------------------------
 # STEP 1 — Sanity-check the environment
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[1/6] checking prerequisites"
 info "[1/6] Checking prerequisites"
 
-[[ -f /opt/ros/foxy/setup.bash ]] || fail "ROS 2 Foxy not found at /opt/ros/foxy/setup.bash"
+require_cmd python3 "Install with: sudo apt install python3"
+[[ -f /opt/ros/foxy/setup.bash ]] || fail "ROS 2 Foxy not found at /opt/ros/foxy/setup.bash. Install ROS 2 Foxy first."
 [[ -d "$WORKSPACE" ]]             || fail "Workspace not found: $WORKSPACE"
 [[ -d "$WORKSPACE/src" ]]         || fail "Workspace missing src/: $WORKSPACE"
+if [[ "$SKIP_BUILD" != "1" ]]; then
+  require_cmd colcon "Install with: sudo apt install python3-colcon-common-extensions"
+fi
 
 # ---------------------------------------------------------------------------
 # STEP 2 — Scrub the ROS environment
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[2/6] scrubbing ROS environment"
 info "[2/6] Scrubbing stale ROS environment variables"
 
 unset ROS_DISTRO ROS_VERSION ROS_PACKAGE_PATH ROS_MASTER_URI ROS_ROOT \
@@ -232,6 +263,7 @@ export PATH
 # ---------------------------------------------------------------------------
 # STEP 3 — Source base ROS 2 Foxy
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[3/6] sourcing ROS 2 Foxy"
 info "[3/6] Sourcing /opt/ros/foxy/setup.bash"
 
 set +u
@@ -241,6 +273,8 @@ set -u
 [[ "${ROS_DISTRO:-}" == "foxy" ]] || \
   fail "ROS_DISTRO is '${ROS_DISTRO:-<unset>}' after sourcing Foxy — start a fresh shell."
 
+require_cmd ros2 "ROS 2 Foxy may be misinstalled — reinstall ros-foxy-ros-base."
+
 python3 -c 'import ament_package' >/dev/null 2>&1 || \
   fail "ament_package not importable. Run: sudo apt install ros-foxy-ament-python python3-ament-package"
 
@@ -249,6 +283,7 @@ python3 -c 'import ament_package' >/dev/null 2>&1 || \
 # ---------------------------------------------------------------------------
 cd "$WORKSPACE"
 
+CURRENT_STEP="[4/6] building workspace (colcon)"
 if [[ "$SKIP_BUILD" == "1" ]]; then
   info "[4/6] Skipping build (--skip-build)"
 else
@@ -276,6 +311,7 @@ fi
 # ---------------------------------------------------------------------------
 # STEP 5 — Source workspace overlay
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[5/6] sourcing workspace overlay"
 info "[5/6] Sourcing workspace overlay"
 
 if [[ ! -f "$WORKSPACE/install/setup.bash" ]]; then
@@ -296,6 +332,7 @@ fi
 # ---------------------------------------------------------------------------
 # STEP 6 — Verify package discovery
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[6/6] verifying package discovery"
 info "[6/6] Verifying package discovery"
 
 _show_pkg_diag() {
@@ -317,10 +354,9 @@ _show_pkg_diag() {
 for pkg in robot_bringup robot_control robot_description; do
   if ! ros2 pkg prefix "$pkg" >/dev/null 2>&1; then
     echo ""
-    fail "$pkg is not discoverable after sourcing the workspace."
     _show_pkg_diag "$pkg"
-    echo "AMENT_PREFIX_PATH=${AMENT_PREFIX_PATH:-}"
-    exit 1
+    echo "AMENT_PREFIX_PATH=${AMENT_PREFIX_PATH:-}" >&2
+    fail "$pkg is not discoverable after sourcing the workspace."
   fi
 done
 info "robot_bringup, robot_control, robot_description — all visible. ✓"
@@ -375,6 +411,7 @@ if [[ "$NETWORK_MODE" == "station" && "$ROLE" == "rock64" ]]; then
   echo ""
 fi
 
+CURRENT_STEP="launching ros2 ($ROLE)"
 banner "All checks passed — launching ($ROLE)"
 
 if [[ "$ROLE" == "rock64" ]]; then

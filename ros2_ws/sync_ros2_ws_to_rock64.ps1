@@ -75,17 +75,21 @@ foreach ($cmd in $requiredCommands) {
 $itemsToSync = @(
     "README.md",
     "requirements.txt",
-    "build_ros2_foxy.sh",
-    "source_ros2_foxy_ws.sh",
     "fix_bashrc_ros_overlay.sh",
-    "fresh_start.sh",
-    "rock64_hardware_start.sh",
-    "pc_operator_start.sh",
+    "robot_start.sh",
     "host_control",
     "src"
 )
 
 $remote = "$UserName@$HostName"
+
+# Prepare space-safe variants of the remote target directory.
+# scp: backslash-escape spaces so the remote shell treats them as literal.
+$scpTargetDir = $TargetDir -replace ' ', '\ '
+# ssh commands: replace leading ~ with $HOME so tilde expands inside
+# double-quotes, and wrap in double-quotes to protect spaces.
+$sshTargetDir = $TargetDir -replace '^~', '$HOME'
+
 Write-Host "Sync source : $workspace"
 Write-Host "Sync target : $remote`:$TargetDir (port $Port)"
 
@@ -106,7 +110,7 @@ Try rerun with explicit IP and port:
 }
 
 Invoke-Logged -Label "Create target directory" -Action {
-    $cmd = "mkdir -p '$TargetDir'"
+    $cmd = "mkdir -p `"$sshTargetDir`""
     if ($WhatIf) {
         Write-Host "[WhatIf] ssh -p $Port $remote $cmd"
     } else {
@@ -125,20 +129,16 @@ foreach ($item in $itemsToSync) {
         if ($WhatIf) {
             Write-Host "[WhatIf] scp -P $Port -r `"$localPath`" `"$remote`:$TargetDir/`""
         } else {
-            Invoke-External -FilePath "scp" -Arguments @("-P", "$Port", "-r", "$localPath", "$remote`:$TargetDir/")
+            Invoke-External -FilePath "scp" -Arguments @("-P", "$Port", "-r", "$localPath", "${remote}:${scpTargetDir}/")
         }
     }
 }
 
 $chmodList = @(
-    "build_ros2_foxy.sh",
-    "source_ros2_foxy_ws.sh",
     "fix_bashrc_ros_overlay.sh",
-    "fresh_start.sh",
-    "rock64_hardware_start.sh",
-    "pc_operator_start.sh"
+    "robot_start.sh"
 )
-$chmodArgs = ($chmodList | ForEach-Object { "$TargetDir/$_" }) -join " "
+$chmodArgs = ($chmodList | ForEach-Object { "`"$sshTargetDir/$_`"" }) -join " "
 
 Invoke-Logged -Label "Set executable bits for shell scripts" -Action {
     $cmd = "chmod +x $chmodArgs"
@@ -153,4 +153,4 @@ Write-Host ""
 Write-Host "Sync complete."
 Write-Host "Next on Rock64:"
 Write-Host "  cd $TargetDir"
-Write-Host "  ./fresh_start.sh --role rock64 --workspace $TargetDir --camera-ip <camera-ip>"
+Write-Host "  ./robot_start.sh"

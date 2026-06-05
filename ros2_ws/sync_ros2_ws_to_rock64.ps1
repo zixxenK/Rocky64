@@ -1,7 +1,7 @@
 param(
     [string]$HostName = "rock64",
     [string]$UserName = "",
-    [string]$TargetDir = "~/rock64_ros2_ws",
+    [string]$TargetDir = "~/Rock64 Robot/ros2_ws",
     [int]$Port = 22,
     [switch]$WhatIf
 )
@@ -75,12 +75,8 @@ foreach ($cmd in $requiredCommands) {
 $itemsToSync = @(
     "README.md",
     "requirements.txt",
-    "build_ros2_foxy.sh",
-    "source_ros2_foxy_ws.sh",
     "fix_bashrc_ros_overlay.sh",
-    "fresh_start.sh",
-    "rock64_hardware_start.sh",
-    "pc_operator_start.sh",
+    "robot_start.sh",
     "host_control",
     "src"
 )
@@ -131,17 +127,15 @@ foreach ($item in $itemsToSync) {
 }
 
 $chmodList = @(
-    "build_ros2_foxy.sh",
-    "source_ros2_foxy_ws.sh",
     "fix_bashrc_ros_overlay.sh",
-    "fresh_start.sh",
-    "rock64_hardware_start.sh",
-    "pc_operator_start.sh"
+    "robot_start.sh"
 )
-$chmodArgs = ($chmodList | ForEach-Object { "$TargetDir/$_" }) -join " "
 
 Invoke-Logged -Label "Set executable bits for shell scripts" -Action {
-    $cmd = "chmod +x $chmodArgs"
+    # Change directory first to avoid issues with spaces in path
+    $quotedDir = "'$TargetDir'"
+    $scripts = ($chmodList -join " ")
+    $cmd = "cd $quotedDir && chmod +x $scripts"
     if ($WhatIf) {
         Write-Host "[WhatIf] ssh -p $Port $remote $cmd"
     } else {
@@ -153,4 +147,4 @@ Write-Host ""
 Write-Host "Sync complete."
 Write-Host "Next on Rock64:"
 Write-Host "  cd $TargetDir"
-Write-Host "  ./fresh_start.sh --role rock64 --workspace $TargetDir --camera-ip <camera-ip>"
+Write-Host "  ./robot_start.sh --role rock64"

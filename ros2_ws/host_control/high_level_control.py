@@ -23,7 +23,8 @@ class TelemetryPacket:
 
 
 class SerialRobotController:
-    def __init__(self, port: str = "/dev/ttyS2", baudrate: int = 9600, timeout: float = 0.1):
+    # Use 115200, not 115600. Ensure port matches physical device.
+    def __init__(self, port: str = "/dev/ttyUSB0", baudrate: int = 115200, timeout: float = 0.1):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout

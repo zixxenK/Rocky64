@@ -1,0 +1,64 @@
+[Unit]
+Description=Rock64 Robot PC Operator Teleop Service
+Documentation=https://github.com/yourusername/rock64-robot
+After=network-online.target systemd-networkd-wait-online.target rock64-robot.service
+Wants=network-online.target
+
+# Service will start after network is ready and after Rock64 robot service
+# This ensures the robot hardware bridge is running before teleop attempts connection
+# The operator service prioritizes PS5 controller detection with keyboard fallback
+
+[Service]
+Type=simple
+User=%i  # Will be set at install time, typically current user
+WorkingDirectory=%h/Rock64 Robot/ros2_ws
+
+# Environment variables for systemd service
+Environment="CONFIG_FILE=/etc/rock64-robot/systemd_config.conf"
+Environment="LOG_LEVEL=INFO"
+Environment="PYTHONUNBUFFERED=1"
+Environment="SDL_JOYSTICK_DEVICE=/dev/input/js0"
+
+# ExecStart points to our wrapper script that handles PS5 controller detection
+ExecStart=%h/Rock64\ Robot/deployment/pc_systemd_start.sh
+
+# Restart policy - restart on failure with exponential backoff
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=5
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=%h/Rock64\ Robot /var/log /tmp
+
+# Allow access to input devices for controller
+DeviceAllow=/dev/input/js* rw
+DeviceAllow=/dev/input/event* rw
+
+# Capability for input device access
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_BIND_SERVICE
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logging - send to systemd journal and syslog
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rock64-operator
+
+# Timeout settings
+TimeoutStartSec=300  # 5 minutes for controller detection and startup
+TimeoutStopSec=30
+
+# Kill settings
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

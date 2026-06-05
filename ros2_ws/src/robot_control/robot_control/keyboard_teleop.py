@@ -11,6 +11,7 @@ except ImportError:
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from rclpy.utilities import remove_ros_args
 from std_msgs.msg import Int16
 from robot_control.keyboard_mapping import DEFAULT_ANGULAR_SPEED
@@ -43,11 +44,14 @@ class KeyboardTeleop(Node):
         self.servo_step = servo_step
         self.servo_repeat_hz = servo_repeat_hz
 
-        self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
+        # Shared QoS profile
+        reliable_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+
+        self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, reliable_qos)
         self.camera_servo_pub = self.create_publisher(
             Int16,
             self.camera_servo_topic,
-            10,
+            reliable_qos,
         )
 
         self.servo_position = 90

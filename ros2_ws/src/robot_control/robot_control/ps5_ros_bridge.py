@@ -198,4 +198,14 @@ def main(argv=None):
     except KeyboardInterrupt:
         pass
     finally:
+        # Emergency stop before shutdown
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.angular.z = 0.0
+        node.pub.publish(twist)
         node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

@@ -8,29 +8,29 @@
 #  Options:
 #    --role         <rock64|pc>         Which machine you're running on (default: rock64)
 #    --workspace    <path>              Workspace root (auto-detected if omitted)
-#    --camera-ip    <ip>                Camera IP address (default: 192.168.0.152)
+#    --camera-ip    <ip>                Camera IP address (default: 192.168.1.153 for station, 192.168.4.1 for AP)
 #    --camera-port  <port>              Camera port     (default: 80)
-#    --serial-port  <path>              Serial device   (default: /dev/ttyACM0)
+#    --serial-port  <path>              Serial device   (auto-detected: /dev/ttyUSB0 or /dev/ttyACM0)
 #    --baud-rate    <baud>              Serial baud     (default: 115200)
 #    --namespace    <name>              Robot namespace (default: rock64_1)
 #    --teleop-mode  <keyboard_servo|ps5>  Teleop mode for PC role (default: keyboard_servo)
-#    --network-mode <station|ap>        Network mode    (default: station)
+#    --network-mode <station|ap>        Network mode    (default: auto-detect)
 #    --expected-ssid <ssid>             Expected WiFi SSID (default: TELUS4424)
-#    --robot-host   <ip>                Robot IP (required for --role pc)
+#    --robot-host   <ip>                Robot IP (default: 192.168.1.159)
+#    --discovery-server <ip:port>      ROS 2 Discovery Server (default: 192.168.1.159:11811)
 #    --domain-id    <id>                ROS_DOMAIN_ID   (default: 0)
 #    --skip-build                       Skip colcon build
-#    --skip-preflight                   Skip Python preflight checks
 #    --help
 #
 #  Examples:
 #    # Rock64 (robot side):
 #    ./robot_start.sh
-#    ./robot_start.sh --camera-ip 192.168.0.153 --serial-port /dev/ttyUSB0
+#    ./robot_start.sh --camera-ip 192.168.1.153 --serial-port /dev/ttyUSB0
 #
 #    # PC operator side:
-#    ./robot_start.sh --role pc --robot-host 192.168.0.110 --teleop-mode ps5
+#    ./robot_start.sh --role pc --robot-host 192.168.1.159 --teleop-mode ps5
 # =============================================================================
-set -euo pipefail
+set -eo pipefail
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -53,18 +53,18 @@ banner() {
 # ---------------------------------------------------------------------------
 ROLE="rock64"
 WORKSPACE=""
-CAMERA_IP="192.168.0.152"
+CAMERA_IP=""  # Will be set based on network mode: 192.168.1.153 (station) or 192.168.4.1 (AP)
 CAMERA_PORT="80"
-SERIAL_PORT="/dev/ttyACM0"
+SERIAL_PORT=""  # Will be auto-detected
 BAUD_RATE="115200"
 ROBOT_NAMESPACE="rock64_1"
 TELEOP_MODE="keyboard_servo"
-NETWORK_MODE="station"
+NETWORK_MODE="auto"  # Auto-detect based on WiFi availability
 EXPECTED_SSID="TELUS4424"
-ROBOT_HOST=""
+ROBOT_HOST="192.168.1.159"
+DISCOVERY_SERVER="192.168.1.159:11811"
 DOMAIN_ID="0"
 SKIP_BUILD="0"
-SKIP_PREFLIGHT="0"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -82,9 +82,9 @@ while [[ $# -gt 0 ]]; do
     --network-mode)   NETWORK_MODE="${2:-}";   shift 2 ;;
     --expected-ssid)  EXPECTED_SSID="${2:-}";  shift 2 ;;
     --robot-host)     ROBOT_HOST="${2:-}";     shift 2 ;;
+    --discovery-server) DISCOVERY_SERVER="${2:-}"; shift 2 ;;
     --domain-id)      DOMAIN_ID="${2:-}";      shift 2 ;;
     --skip-build)     SKIP_BUILD="1";          shift ;;
-    --skip-preflight) SKIP_PREFLIGHT="1";      shift ;;
     --help|-h)
       sed -n '/^#  Usage/,/^# ====/p' "$0" | sed 's/^# \{0,2\}//'
       exit 0
@@ -94,15 +94,80 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---------------------------------------------------------------------------
+# Auto-detection functions
+# ---------------------------------------------------------------------------
+_detect_network_mode() {
+  # Auto-detect network mode based on WiFi availability
+  if [[ "$NETWORK_MODE" != "auto" ]]; then
+    echo "$NETWORK_MODE"
+    return 0
+  fi
+
+  # Check if expected SSID is available
+  if command -v nmcli >/dev/null 2>&1; then
+    if nmcli -t -f ssid dev wifi | grep -q "^${EXPECTED_SSID}$"; then
+      echo "station"
+    else
+      echo "ap"
+    fi
+  elif command -w iwlist >/dev/null 2>&1; then
+    if iwlist scan 2>/dev/null | grep -q "${EXPECTED_SSID}"; then
+      echo "station"
+    else
+      echo "ap"
+    fi
+  else
+    # Default to station mode if we can't detect
+    echo "station"
+  fi
+}
+
+_detect_serial_port() {
+  # Auto-detect serial port
+  if [[ -n "$SERIAL_PORT" ]]; then
+    echo "$SERIAL_PORT"
+    return 0
+  fi
+
+  # Prefer USB0, fallback to ACM0
+  if [[ -e "/dev/ttyUSB0" ]]; then
+    echo "/dev/ttyUSB0"
+  elif [[ -e "/dev/ttyACM0" ]]; then
+    echo "/dev/ttyACM0"
+  else
+    # Try to find any Arduino/USB serial device
+    for device in /dev/ttyUSB* /dev/ttyACM*; do
+      if [[ -e "$device" ]]; then
+        echo "$device"
+        return 0
+      fi
+    done
+    echo "/dev/ttyUSB0"  # Default fallback
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Auto-detect configuration
+# ---------------------------------------------------------------------------
+NETWORK_MODE="$(_detect_network_mode)"
+SERIAL_PORT="$(_detect_serial_port)"
+
+# Set camera IP based on network mode
+if [[ -z "$CAMERA_IP" ]]; then
+  if [[ "$NETWORK_MODE" == "station" ]]; then
+    CAMERA_IP="192.168.1.153"  # Station mode camera IP
+  else
+    CAMERA_IP="192.168.4.1"    # AP mode camera IP
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Validate args
 # ---------------------------------------------------------------------------
 [[ "$ROLE" == "rock64" || "$ROLE" == "pc" ]] || fail "--role must be rock64 or pc"
 [[ "$NETWORK_MODE" == "station" || "$NETWORK_MODE" == "ap" ]] || fail "--network-mode must be station or ap"
 if [[ "$ROLE" == "pc" && -z "$ROBOT_HOST" ]]; then
-  fail "--robot-host is required for --role pc  (e.g. --robot-host 192.168.0.110)"
-fi
-if [[ "$NETWORK_MODE" == "ap" && -z "$CAMERA_IP" ]]; then
-  CAMERA_IP="192.168.4.1"
+  fail "--robot-host is required for --role pc  (e.g. --robot-host 192.168.1.159)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -110,10 +175,11 @@ fi
 # ---------------------------------------------------------------------------
 _detect_workspace() {
   local candidates=(
-    "$HOME/rock64_ros2_ws"
-    "$HOME/ros2_ws"
-    "$HOME/Rock64 Robot/ros2_ws"
-    "/mnt/c/Desktop/Rock64 Robot/ros2_ws"
+    "/mnt/c/Desktop/Rock64 Robot/ros2_ws"      # WSL path
+    "C:/Desktop/Rock64 Robot/ros2_ws"         # Windows Git Bash path
+    "$HOME/Rock64 Robot/ros2_ws"              # Linux home
+    "$HOME/ros2_ws"                           # Fallback
+    "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"  # Script location
   )
   for c in "${candidates[@]}"; do
     if [[ -d "$c/src/robot_bringup" && -d "$c/src/robot_control" ]]; then
@@ -131,33 +197,27 @@ fi
 banner "Rock64 Robot — one-shot startup  (role=$ROLE)"
 info "Workspace : $WORKSPACE"
 info "Namespace : $ROBOT_NAMESPACE"
+info "Network   : $NETWORK_MODE mode"
 info "Camera    : $CAMERA_IP:$CAMERA_PORT"
 [[ "$ROLE" == "rock64" ]] && info "Serial    : $SERIAL_PORT @ ${BAUD_RATE} baud"
 [[ "$ROLE" == "pc"     ]] && info "Teleop    : $TELEOP_MODE"
+[[ "$ROLE" == "pc"     ]] && info "Robot     : $ROBOT_HOST"
+info "Discovery: $DISCOVERY_SERVER"
 echo ""
 
 # ---------------------------------------------------------------------------
 # STEP 1 — Sanity-check the environment
 # ---------------------------------------------------------------------------
-info "[1/7] Checking prerequisites"
+info "[1/6] Checking prerequisites"
 
 [[ -f /opt/ros/foxy/setup.bash ]] || fail "ROS 2 Foxy not found at /opt/ros/foxy/setup.bash"
 [[ -d "$WORKSPACE" ]]             || fail "Workspace not found: $WORKSPACE"
 [[ -d "$WORKSPACE/src" ]]         || fail "Workspace missing src/: $WORKSPACE"
 
-# Warn about legacy ROS cruft in .bashrc
-if grep -En '^(source|\.)[^#]*(noetic|melodic|catkin_ws|ROS_DISTRO)' \
-     "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" 2>/dev/null | grep -q .; then
-  warn "Your shell startup files appear to source an old ROS1/catkin overlay."
-  warn "This can contaminate interactive shells. Run ./fix_bashrc_ros_overlay.sh"
-  warn "on the Rock64 to clean it up (backups are made automatically)."
-  echo ""
-fi
-
 # ---------------------------------------------------------------------------
 # STEP 2 — Scrub the ROS environment
 # ---------------------------------------------------------------------------
-info "[2/7] Scrubbing stale ROS environment variables"
+info "[2/6] Scrubbing stale ROS environment variables"
 
 unset ROS_DISTRO ROS_VERSION ROS_PACKAGE_PATH ROS_MASTER_URI ROS_ROOT \
       AMENT_PREFIX_PATH COLCON_PREFIX_PATH COLCON_CURRENT_PREFIX \
@@ -172,7 +232,7 @@ export PATH
 # ---------------------------------------------------------------------------
 # STEP 3 — Source base ROS 2 Foxy
 # ---------------------------------------------------------------------------
-info "[3/7] Sourcing /opt/ros/foxy/setup.bash"
+info "[3/6] Sourcing /opt/ros/foxy/setup.bash"
 
 set +u
 source /opt/ros/foxy/setup.bash
@@ -190,9 +250,9 @@ python3 -c 'import ament_package' >/dev/null 2>&1 || \
 cd "$WORKSPACE"
 
 if [[ "$SKIP_BUILD" == "1" ]]; then
-  info "[4/7] Skipping build (--skip-build)"
+  info "[4/6] Skipping build (--skip-build)"
 else
-  info "[4/7] Building workspace (this may take a minute…)"
+  info "[4/6] Building workspace (this may take a minute…)"
 
   # Remove stale artifacts so prefix files regenerate cleanly
   rm -rf "$WORKSPACE/build" "$WORKSPACE/install" "$WORKSPACE/log"
@@ -216,7 +276,7 @@ fi
 # ---------------------------------------------------------------------------
 # STEP 5 — Source workspace overlay
 # ---------------------------------------------------------------------------
-info "[5/7] Sourcing workspace overlay"
+info "[5/6] Sourcing workspace overlay"
 
 if [[ ! -f "$WORKSPACE/install/setup.bash" ]]; then
   fail "install/setup.bash not found. Build first, or omit --skip-build."
@@ -236,7 +296,7 @@ fi
 # ---------------------------------------------------------------------------
 # STEP 6 — Verify package discovery
 # ---------------------------------------------------------------------------
-info "[6/7] Verifying package discovery"
+info "[6/6] Verifying package discovery"
 
 _show_pkg_diag() {
   local pkg="$1"
@@ -266,34 +326,11 @@ done
 info "robot_bringup, robot_control, robot_description — all visible. ✓"
 
 # ---------------------------------------------------------------------------
-# STEP 7 — Run Python preflight (optional)
+# Set ROS environment
 # ---------------------------------------------------------------------------
 export ROS_DOMAIN_ID="$DOMAIN_ID"
+export ROS_DISCOVERY_SERVER="$DISCOVERY_SERVER"
 export ROS_LOCALHOST_ONLY=0
-
-if [[ "$SKIP_PREFLIGHT" == "1" ]]; then
-  info "[7/7] Skipping Python preflight (--skip-preflight)"
-elif [[ -f "$WORKSPACE/host_control/bringup_preflight.py" ]]; then
-  info "[7/7] Running Python preflight checks"
-
-  PREFLIGHT_ARGS=(
-    --role           "$ROLE"
-    --network-mode   "$NETWORK_MODE"
-    --camera-ip      "$CAMERA_IP"
-    --camera-port    "$CAMERA_PORT"
-    --expected-ssid  "$EXPECTED_SSID"
-    --robot-namespace "$ROBOT_NAMESPACE"
-  )
-  if [[ "$ROLE" == "rock64" ]]; then
-    PREFLIGHT_ARGS+=(--serial-port "$SERIAL_PORT")
-  else
-    PREFLIGHT_ARGS+=(--robot-host "$ROBOT_HOST")
-  fi
-
-  python3 "$WORKSPACE/host_control/bringup_preflight.py" "${PREFLIGHT_ARGS[@]}"
-else
-  info "[7/7] bringup_preflight.py not found — skipping preflight"
-fi
 
 # ---------------------------------------------------------------------------
 # Hardware / input device checks (role-specific)
@@ -304,6 +341,7 @@ if [[ "$ROLE" == "rock64" ]]; then
     warn "Detected candidates:"
     ls -1 /dev/ttyACM* /dev/ttyUSB* /dev/serial/by-id/* 2>/dev/null || warn "(none found)"
     warn "Pass --serial-port <device> if the path differs."
+    warn "Continuing anyway — serial bridge will attempt auto-detection..."
   fi
 fi
 
@@ -328,6 +366,15 @@ CAMERA_URL="http://${CAMERA_IP}:${CAMERA_PORT}/stream"
 # Strip redundant :80 from URL for cleanliness
 [[ "$CAMERA_PORT" == "80" ]] && CAMERA_URL="http://${CAMERA_IP}/stream"
 
+# Important: For station mode, provide network guidance
+if [[ "$NETWORK_MODE" == "station" && "$ROLE" == "rock64" ]]; then
+  warn "IMPORTANT: ESP32 is configured for station mode (connects to WiFi router)"
+  warn "Make sure ESP32 has connected to WiFi and obtained an IP address"
+  warn "Check ESP32 serial monitor or router DHCP table for actual IP"
+  warn "If camera fails, update camera-url in rock64_hardware.yaml with ESP32's actual IP"
+  echo ""
+fi
+
 banner "All checks passed — launching ($ROLE)"
 
 if [[ "$ROLE" == "rock64" ]]; then
@@ -335,6 +382,7 @@ if [[ "$ROLE" == "rock64" ]]; then
   info "  namespace : $ROBOT_NAMESPACE"
   info "  serial    : $SERIAL_PORT  ($BAUD_RATE baud)"
   info "  camera    : $CAMERA_URL"
+  info "  network   : $NETWORK_MODE mode"
   echo ""
 
   exec ros2 launch robot_bringup rock64_bringup.launch.py \

@@ -13,6 +13,8 @@ class SerialRobotBridge(Node):
         self.port = self.declare_parameter('port', '/dev/ttyUSB0').value
         self.baudrate = 115200
         self.ser = serial.Serial(self.port, self.baudrate, timeout=1)
+        self.ser.reset_input_buffer()
+        self.ser.reset_output_buffer()
         
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.get_logger().info(f'Serial Bridge connected to {self.port}')
@@ -32,3 +34,7 @@ def main(args=None):
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

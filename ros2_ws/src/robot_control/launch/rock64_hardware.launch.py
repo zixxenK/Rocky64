@@ -50,9 +50,9 @@ def generate_launch_description():
         ),
         Node(
             package='robot_control',
-            executable='arduino_serial_bridge',
+            executable='serial_robot_bridge',
             namespace=robot_namespace,
-            name='arduino_serial_bridge',
+            name='serial_robot_bridge',
             output='screen',
             parameters=[
                 params_file,

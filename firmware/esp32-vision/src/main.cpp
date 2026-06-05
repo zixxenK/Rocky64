@@ -9,16 +9,16 @@
 #include "camera_pins.h"
 
 const char* ap_ssid = "ESP32-CAM-AP";
-const char* ap_password = "robot2026";
+const char* ap_password = "robot2026";  // TODO: Move to secure config for production
 
 const bool use_station_mode = true;
 const char* sta_ssid = "TELUS4424";
-const char* sta_password = "camncarm2021";
+const char* sta_password = "camncarm2021";  // TODO: Move to secure config for production
 
 // --- INJECTED: UDP Network Variables ---
 WiFiUDP udp;
 const unsigned int localUdpPort = 8888; // Listens to the port your ROS2 node targets
-char udpPacketBuffer[255]; 
+char udpPacketBuffer[128]; 
 
 WebServer server(80);
 bool wifiConnected = false;
@@ -152,8 +152,8 @@ void loop() {
   // --- INJECTED: Read ROS2 packets from Wi-Fi and forward directly to Uno ---
   int packetSize = udp.parsePacket();
   if (packetSize) {
-    int len = udp.read(udpPacketBuffer, 255);
-    if (len > 0) {
+    int len = udp.read(udpPacketBuffer, 128);
+    if (len > 0 && len < 128) {
       udpPacketBuffer[len] = '\0';
       // This sends '<1,B,85>\n' physically down the TX pin straight to the Uno's RX pin!
       Serial.print(udpPacketBuffer); 

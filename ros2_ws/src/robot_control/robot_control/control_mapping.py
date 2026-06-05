@@ -25,6 +25,16 @@ def twist_to_wheel_speeds(
     linear_scale: float = 200.0,
     angular_scale: float = 100.0,
 ) -> Tuple[int, int]:
-    left_speed = clamp_speed(linear_x * linear_scale + angular_z * angular_scale)
-    right_speed = clamp_speed(linear_x * linear_scale - angular_z * angular_scale)
+    left_raw = linear_x * linear_scale + angular_z * angular_scale
+    right_raw = linear_x * linear_scale - angular_z * angular_scale
+    max_raw = max(abs(left_raw), abs(right_raw))
+
+    if max_raw > 255:
+        scale_factor = 255.0 / max_raw
+        left_speed = int(left_raw * scale_factor)
+        right_speed = int(right_raw * scale_factor)
+    else:
+        left_speed = int(left_raw)
+        right_speed = int(right_raw)
+
     return left_speed, right_speed

@@ -32,7 +32,7 @@ setup(
     license='Apache License 2.0',
     entry_points={
         'console_scripts': [
-            'arduino_serial_bridge = robot_control.arduino_serial_bridge:main',
+            'serial_robot_bridge = robot_control.serial_robot_bridge:main',
             'esp32_camera_bridge = robot_control.esp32_camera_bridge:main',
             'keyboard_teleop = robot_control.keyboard_teleop:main',
             'ps5_ros_bridge = robot_control.ps5_ros_bridge:main',

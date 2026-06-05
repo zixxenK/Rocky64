@@ -1,0 +1,63 @@
+[Unit]
+Description=Rock64 Robot Hardware Bridge Service
+Documentation=https://github.com/yourusername/rock64-robot
+After=network-online.target systemd-networkd-wait-online.service
+Wants=network-online.target
+
+# Service will start after network is ready and wait for hardware detection
+# This ensures ROS2 DDS discovery works properly
+
+[Service]
+Type=simple
+User=rocky64
+Group=dialout
+WorkingDirectory=/home/rocky64/Rock64 Robot/ros2_ws
+
+# Environment variables for systemd service
+Environment="CONFIG_FILE=/etc/rock64-robot/systemd_config.conf"
+Environment="LOG_LEVEL=INFO"
+Environment="PYTHONUNBUFFERED=1"
+
+# ExecStart points to our wrapper script that handles hardware detection
+ExecStart=/home/rocky64/Rock64\ Robot/deployment/rock64_systemd_start.sh
+
+# Restart policy - restart on failure with exponential backoff
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=5
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/rocky64/Rock64\ Robot /var/log /tmp
+
+# Allow access to serial devices
+DeviceAllow=/dev/ttyUSB* rw
+DeviceAllow=/dev/ttyACM* rw
+
+# Capability for serial port access
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_BIND_SERVICE
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logging - send to systemd journal and syslog
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rock64-robot
+
+# Timeout settings
+TimeoutStartSec=300  # 5 minutes for hardware detection and startup
+TimeoutStopSec=30
+
+# Kill settings
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

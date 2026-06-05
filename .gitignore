@@ -40,3 +40,9 @@ build/
 *.bak
 *.tmp
 *~
+creds
+ENV_CONFIG.md
+deployment/systemd_config.conf
+rock64vscoderepo.zip
+*.zip
+compile_commands.json

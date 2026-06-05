@@ -285,6 +285,8 @@ class SerialRobotController(Node):
         self.port = _select_serial_port(self.port)
         try:
             self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+            self._serial.reset_input_buffer()
+            self._serial.reset_output_buffer()
             self._running = True
             self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
             self._reader_thread.start()
@@ -331,8 +333,14 @@ class SerialRobotController(Node):
         if self._serial is None:
             return
 
-        while rclpy.ok() and self._running and self._serial.is_open:
+        while rclpy.ok() and self._running:
             try:
+                if self._serial is None or not self._serial.is_open:
+                    self.get_logger().warn('Serial port disconnected, attempting to reconnect...')
+                    time.sleep(2.0)
+                    self._connect_serial()
+                    continue
+
                 line = self._serial.readline().decode('utf-8', errors='replace').strip()
                 if not line:
                     continue
@@ -346,7 +354,13 @@ class SerialRobotController(Node):
                     self.get_logger().debug(f'Unrecognized serial line: {line}')
             except SerialException as exc:
                 self.get_logger().error(f'Serial read error: {exc}')
-                break
+                self.get_logger().warn('Serial connection lost, will attempt reconnection...')
+                if self._serial is not None:
+                    try:
+                        self._serial.close()
+                    except Exception:
+                        pass
+                self._serial = None
             except Exception as exc:
                 self.get_logger().error(f'Unexpected read error: {exc}')
 

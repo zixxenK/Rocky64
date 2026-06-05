@@ -84,7 +84,7 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([
-                    FindPackageShare('robot_bringup'),
+                    FindPackageShare('robot_control'),
                     'launch',
                     'rock64_bringup.launch.py',
                 ])
@@ -106,7 +106,7 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([
-                    FindPackageShare('robot_bringup'),
+                    FindPackageShare('robot_control'),
                     'launch',
                     'keyboard_teleop.launch.py',
                 ])
@@ -120,7 +120,7 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([
-                    FindPackageShare('robot_bringup'),
+                    FindPackageShare('robot_control'),
                     'launch',
                     'keyboard_servo_teleop.launch.py',
                 ])
@@ -135,7 +135,7 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([
-                    FindPackageShare('robot_bringup'),
+                    FindPackageShare('robot_control'),
                     'launch',
                     'ps5_teleop.launch.py',
                 ])

@@ -1,4 +1,4 @@
-"""arduino_serial_bridge.py  —  Production-grade ROS 2 ↔ Arduino serial node.
+"""serial_robot_bridge.py  —  Production-grade ROS 2 ↔ Arduino serial node.
 
 Architecture
 ------------
@@ -65,7 +65,7 @@ def glob_fallback_port() -> Optional[str]:
 # Node
 # ---------------------------------------------------------------------------
 
-class ArduinoSerialBridge(Node):
+class SerialRobotBridge(Node):
     """ROS 2 node that bridges cmd_vel / camera_servo topics to Arduino serial."""
 
     # ------------------------------------------------------------------
@@ -73,7 +73,7 @@ class ArduinoSerialBridge(Node):
     # ------------------------------------------------------------------
 
     def __init__(self) -> None:
-        super().__init__('arduino_serial_bridge')
+        super().__init__('serial_robot_bridge')
         self._declare_parameters()
 
         # Serial state
@@ -82,7 +82,7 @@ class ArduinoSerialBridge(Node):
         self._disconnect_logged: bool = False  # rate-limiter for disconnect warnings
 
         # Writer thread state
-        self._write_queue: queue.Queue = queue.Queue(maxsize=32)
+        self._write_queue: queue.Queue = queue.Queue(maxsize=64)
         self._shutdown: bool = False
 
         # Watchdog state
@@ -263,6 +263,11 @@ class ArduinoSerialBridge(Node):
         )
 
     def cmd_vel_callback(self, msg: Twist) -> None:
+        # Add queue full monitoring with backpressure
+        if self._write_queue.full():
+            self.get_logger().error('Serial write queue full - dropping command')
+            return
+        
         self._last_cmd_time = time.monotonic()
         self._watchdog_fired = False   # reset stale flag on any new command
 
@@ -337,7 +342,7 @@ class ArduinoSerialBridge(Node):
 
 def main(args=None) -> None:
     rclpy.init(args=args)
-    node = ArduinoSerialBridge()
+    node = SerialRobotBridge()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -36,6 +36,31 @@ function Invoke-External {
     }
 }
 
+function ConvertTo-RemotePathToken {
+    # Produce a remote-shell-safe path token where a leading ~ still expands
+    # but spaces and other characters are quoted. e.g.
+    #   ~/Rock64 Robot/ros2_ws -> ~/'Rock64 Robot/ros2_ws'
+    #   /opt/foo bar           -> '/opt/foo bar'
+    param(
+        [Parameter(Mandatory=$true)][string]$Path
+    )
+
+    $p = $Path -replace '\\', '/'
+    if ($p -eq '~') {
+        return '~'
+    } elseif ($p -like '~/*') {
+        return "~/'" + $p.Substring(2) + "'"
+    } elseif ($p -like '~*') {
+        $slash = $p.IndexOf('/')
+        if ($slash -ge 0) {
+            return $p.Substring(0, $slash) + "/'" + $p.Substring($slash + 1) + "'"
+        }
+        return $p
+    } else {
+        return "'" + $p + "'"
+    }
+}
+
 function Resolve-SshUserName {
     param(
         [Parameter(Mandatory=$true)][string]$HostName,
@@ -82,6 +107,7 @@ $itemsToSync = @(
 )
 
 $remote = "$UserName@$HostName"
+$remoteTarget = ConvertTo-RemotePathToken -Path $TargetDir
 Write-Host "Sync source : $workspace"
 Write-Host "Sync target : $remote`:$TargetDir (port $Port)"
 
@@ -102,7 +128,7 @@ Try rerun with explicit IP and port:
 }
 
 Invoke-Logged -Label "Create target directory" -Action {
-    $cmd = "mkdir -p '$TargetDir'"
+    $cmd = "mkdir -p $remoteTarget"
     if ($WhatIf) {
         Write-Host "[WhatIf] ssh -p $Port $remote $cmd"
     } else {
@@ -121,7 +147,7 @@ foreach ($item in $itemsToSync) {
         if ($WhatIf) {
             Write-Host "[WhatIf] scp -P $Port -r `"$localPath`" `"$remote`:$TargetDir/`""
         } else {
-            Invoke-External -FilePath "scp" -Arguments @("-P", "$Port", "-r", "$localPath", "$remote`:$TargetDir/")
+            Invoke-External -FilePath "scp" -Arguments @("-P", "$Port", "-r", "$localPath", "$remote`:$remoteTarget/")
         }
     }
 }
@@ -132,10 +158,10 @@ $chmodList = @(
 )
 
 Invoke-Logged -Label "Set executable bits for shell scripts" -Action {
-    # Change directory first to avoid issues with spaces in path
-    $quotedDir = "'$TargetDir'"
+    # cd into the synced directory (tilde must expand, so it is not fully
+    # single-quoted) and chmod only the scripts that actually arrived.
     $scripts = ($chmodList -join " ")
-    $cmd = "cd $quotedDir && chmod +x $scripts"
+    $cmd = "cd $remoteTarget && for f in $scripts; do if [ -f ""`$f"" ]; then chmod +x ""`$f""; fi; done"
     if ($WhatIf) {
         Write-Host "[WhatIf] ssh -p $Port $remote $cmd"
     } else {

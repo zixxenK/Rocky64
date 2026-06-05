@@ -38,7 +38,33 @@ set -euo pipefail
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-fail()  { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+# fail() prints a clean message and exits; disable the ERR trap so the
+# generic fatal banner doesn't fire on top of an already-explained error.
+fail()  { trap - ERR; echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || fail "Required command '$1' not found in PATH.${2:+  $2}"
+}
+
+# Track the current phase so unexpected failures report where they happened.
+CURRENT_STEP="initialising"
+on_error() {
+  local exit_code=$?
+  local line="${1:-?}"
+  trap - ERR
+  echo "" >&2
+  echo -e "${RED}==========================================================${NC}" >&2
+  echo -e "${RED}[FATAL] Startup failed during: ${CURRENT_STEP}${NC}" >&2
+  echo -e "${RED}        exit code ${exit_code} (line ${line})${NC}" >&2
+  echo -e "${RED}        command: ${BASH_COMMAND}${NC}" >&2
+  echo -e "${RED}==========================================================${NC}" >&2
+  echo "Tips:" >&2
+  echo "  - Build problems?     re-run with --skip-build (after a good build)" >&2
+  echo "  - Preflight problems? re-run with --skip-preflight" >&2
+  echo "  - See all options:    ./robot_start.sh --help" >&2
+  exit "$exit_code"
+}
+trap 'on_error $LINENO' ERR
 
 banner() {
   echo ""
@@ -139,11 +165,16 @@ echo ""
 # ---------------------------------------------------------------------------
 # STEP 1 — Sanity-check the environment
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[1/7] checking prerequisites"
 info "[1/7] Checking prerequisites"
 
-[[ -f /opt/ros/foxy/setup.bash ]] || fail "ROS 2 Foxy not found at /opt/ros/foxy/setup.bash"
+require_cmd python3 "Install with: sudo apt install python3"
+[[ -f /opt/ros/foxy/setup.bash ]] || fail "ROS 2 Foxy not found at /opt/ros/foxy/setup.bash. Install ROS 2 Foxy first."
 [[ -d "$WORKSPACE" ]]             || fail "Workspace not found: $WORKSPACE"
 [[ -d "$WORKSPACE/src" ]]         || fail "Workspace missing src/: $WORKSPACE"
+if [[ "$SKIP_BUILD" != "1" ]]; then
+  require_cmd colcon "Install with: sudo apt install python3-colcon-common-extensions"
+fi
 
 # Warn about legacy ROS cruft in .bashrc
 if grep -En '^(source|\.)[^#]*(noetic|melodic|catkin_ws|ROS_DISTRO)' \
@@ -157,6 +188,7 @@ fi
 # ---------------------------------------------------------------------------
 # STEP 2 — Scrub the ROS environment
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[2/7] scrubbing ROS environment"
 info "[2/7] Scrubbing stale ROS environment variables"
 
 unset ROS_DISTRO ROS_VERSION ROS_PACKAGE_PATH ROS_MASTER_URI ROS_ROOT \
@@ -172,6 +204,7 @@ export PATH
 # ---------------------------------------------------------------------------
 # STEP 3 — Source base ROS 2 Foxy
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[3/7] sourcing ROS 2 Foxy"
 info "[3/7] Sourcing /opt/ros/foxy/setup.bash"
 
 set +u
@@ -181,6 +214,8 @@ set -u
 [[ "${ROS_DISTRO:-}" == "foxy" ]] || \
   fail "ROS_DISTRO is '${ROS_DISTRO:-<unset>}' after sourcing Foxy — start a fresh shell."
 
+require_cmd ros2 "ROS 2 Foxy may be misinstalled — reinstall ros-foxy-ros-base."
+
 python3 -c 'import ament_package' >/dev/null 2>&1 || \
   fail "ament_package not importable. Run: sudo apt install ros-foxy-ament-python python3-ament-package"
 
@@ -189,6 +224,7 @@ python3 -c 'import ament_package' >/dev/null 2>&1 || \
 # ---------------------------------------------------------------------------
 cd "$WORKSPACE"
 
+CURRENT_STEP="[4/7] building workspace (colcon)"
 if [[ "$SKIP_BUILD" == "1" ]]; then
   info "[4/7] Skipping build (--skip-build)"
 else
@@ -216,6 +252,7 @@ fi
 # ---------------------------------------------------------------------------
 # STEP 5 — Source workspace overlay
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[5/7] sourcing workspace overlay"
 info "[5/7] Sourcing workspace overlay"
 
 if [[ ! -f "$WORKSPACE/install/setup.bash" ]]; then
@@ -236,6 +273,7 @@ fi
 # ---------------------------------------------------------------------------
 # STEP 6 — Verify package discovery
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[6/7] verifying package discovery"
 info "[6/7] Verifying package discovery"
 
 _show_pkg_diag() {
@@ -257,10 +295,9 @@ _show_pkg_diag() {
 for pkg in robot_bringup robot_control robot_description; do
   if ! ros2 pkg prefix "$pkg" >/dev/null 2>&1; then
     echo ""
-    fail "$pkg is not discoverable after sourcing the workspace."
     _show_pkg_diag "$pkg"
-    echo "AMENT_PREFIX_PATH=${AMENT_PREFIX_PATH:-}"
-    exit 1
+    echo "AMENT_PREFIX_PATH=${AMENT_PREFIX_PATH:-}" >&2
+    fail "$pkg is not discoverable after sourcing the workspace."
   fi
 done
 info "robot_bringup, robot_control, robot_description — all visible. ✓"
@@ -268,6 +305,7 @@ info "robot_bringup, robot_control, robot_description — all visible. ✓"
 # ---------------------------------------------------------------------------
 # STEP 7 — Run Python preflight (optional)
 # ---------------------------------------------------------------------------
+CURRENT_STEP="[7/7] running preflight checks"
 export ROS_DOMAIN_ID="$DOMAIN_ID"
 export ROS_LOCALHOST_ONLY=0
 
@@ -290,7 +328,18 @@ elif [[ -f "$WORKSPACE/host_control/bringup_preflight.py" ]]; then
     PREFLIGHT_ARGS+=(--robot-host "$ROBOT_HOST")
   fi
 
+  # Don't let a flaky camera/serial check kill startup via set -e; capture
+  # the exit code and report it clearly instead.
+  set +e
   python3 "$WORKSPACE/host_control/bringup_preflight.py" "${PREFLIGHT_ARGS[@]}"
+  PREFLIGHT_RC=$?
+  set -e
+  if [[ "$PREFLIGHT_RC" -ne 0 ]]; then
+    echo ""
+    warn "Preflight reported problems (exit $PREFLIGHT_RC) — see [FAIL] lines above."
+    warn "Fix the hardware/network issues, or re-run with --skip-preflight to launch anyway."
+    fail "Aborting before launch due to preflight failure."
+  fi
 else
   info "[7/7] bringup_preflight.py not found — skipping preflight"
 fi
@@ -328,6 +377,7 @@ CAMERA_URL="http://${CAMERA_IP}:${CAMERA_PORT}/stream"
 # Strip redundant :80 from URL for cleanliness
 [[ "$CAMERA_PORT" == "80" ]] && CAMERA_URL="http://${CAMERA_IP}/stream"
 
+CURRENT_STEP="launching ros2 ($ROLE)"
 banner "All checks passed — launching ($ROLE)"
 
 if [[ "$ROLE" == "rock64" ]]; then

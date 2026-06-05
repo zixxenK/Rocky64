@@ -147,7 +147,10 @@ foreach ($item in $itemsToSync) {
         if ($WhatIf) {
             Write-Host "[WhatIf] scp -P $Port -r `"$localPath`" `"$remote`:$TargetDir/`""
         } else {
-            Invoke-External -FilePath "scp" -Arguments @("-P", "$Port", "-r", "$localPath", "$remote`:$remoteTarget/")
+            # scp (SFTP protocol) takes the remote path literally and does NOT
+            # run it through a shell, so use the raw $TargetDir (no shell quotes);
+            # the sftp server expands a leading ~ and spaces are fine.
+            Invoke-External -FilePath "scp" -Arguments @("-P", "$Port", "-r", "$localPath", "$remote`:$TargetDir/")
         }
     }
 }

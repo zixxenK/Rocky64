@@ -21,7 +21,7 @@ setup(
         ),
         (
             os.path.join('share', package_name, 'config'),
-            glob.glob('config/*.yaml'),
+            glob.glob('config/*.yaml') + glob.glob('config/*.xml'),
         ),
     ],
     install_requires=['setuptools'],
@@ -38,6 +38,7 @@ setup(
             'ps5_ros_bridge = robot_control.ps5_ros_bridge:main',
             'robot_control_node = robot_control.robot_control_node:main',
             'udp_robot_bridge = robot_control.udp_robot_bridge:main',
+            'stream_viewer = robot_control.stream_viewer:main',
         ],
     },
 )

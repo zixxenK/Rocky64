@@ -182,8 +182,8 @@ def main(argv=None):
     rclpy.init(args=argv)
     ros_args = remove_ros_args(sys.argv)
     parser = argparse.ArgumentParser(description='PS5 DualSense to ROS2 cmd_vel bridge (evdev only)')
-    parser.add_argument('--cmd-vel-topic', default='/cmd_vel')
-    parser.add_argument('--camera-servo-topic', default='/camera_servo')
+    parser.add_argument('--cmd-vel-topic', default='cmd_vel')
+    parser.add_argument('--camera-servo-topic', default='camera_servo')
     parser.add_argument('--invert-lefty', action='store_true')
     args, _ = parser.parse_known_args(ros_args[1:])
 

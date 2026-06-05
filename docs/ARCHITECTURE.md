@@ -72,9 +72,10 @@ The platform is a heterogeneous distributed robotics system:
 
 ### Serial messaging
 
-- Rock64 sends commands to Arduino over UART at **9600 baud**.
+- Rock64 sends commands to Arduino over USB-serial at **115200 baud**.
 - Command format for the current Arduino firmware:
-  - `<MOVE,left_speed,right_speed>` where `left_speed` and `right_speed` are signed values in `-255..255`
+  - `<motor_id,direction,magnitude>` where `motor_id` is 1 (right) or 2 (left),
+    `direction` is F/B/S, and `magnitude` is 0–255.
   - `<SERVO,position>` where `position` is `0..180`
 - Arduino enforces a **200 ms heartbeat timeout** and stops motors if packets cease.
 
@@ -102,12 +103,24 @@ The platform is a heterogeneous distributed robotics system:
 4. Run `ros1_ws` or the ROS1 bridge stack to confirm end-to-end integration.
 5. Once the hardware path is stable, use `ros2_ws/host_control` only as a smoke-test helper or to prototype future ROS 2 integration.
 
-## Future architecture direction
+## Current ROS 2 workspace
 
-The next design phase is to evolve the host-side Python integration into a true ROS 2 workspace, including:
+The host-side Python integration is a ROS 2 Foxy workspace:
 
-- `ros2_ws/src/robot_control/`
-- `ros2_ws/src/robot_msgs/`
-- `ros2_ws/src/robot_bringup/`
+- `ros2_ws/src/robot_control/` — Hardware bridge nodes, teleop nodes, control mapping
+- `ros2_ws/src/robot_bringup/` — Launch files for robot and operator sessions
+- `ros2_ws/src/robot_description/` — URDF/robot description
 
-This will allow the Rock64 to participate in a proper ROS 2 node graph while preserving the Arduino as a deterministic real-time actuator layer.
+### Two-machine workflow
+
+See [QUICKSTART.md](QUICKSTART.md) for full setup instructions.
+
+- **Rock64** runs `robot_start.sh --role rock64` → hardware bridges only
+- **Operator PC** runs `robot_start.sh --role pc` → teleop + stream viewer
+- DDS discovery uses unicast peers via `fastdds_unicast.xml` (WiFi multicast
+  is unreliable)
+
+### Hardware safety
+
+See [HARDWARE_SAFETY.md](HARDWARE_SAFETY.md) for critical wiring notes
+(data-only USB cable, 3.3V/5V level shifting, motor noise).

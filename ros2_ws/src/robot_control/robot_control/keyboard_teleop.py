@@ -56,7 +56,23 @@ class KeyboardTeleop(Node):
     def run(self) -> None:
         pygame.init()
         pygame.display.set_caption('Rock64 Keyboard Teleop')
-        screen = pygame.display.set_mode((540, 180))
+        try:
+            screen = pygame.display.set_mode((540, 180))
+        except pygame.error as exc:
+            self.get_logger().error(
+                'Could not open the teleop window (no display): %s\n'
+                'This usually means $DISPLAY is unset/unreachable — common '
+                'on WSL without an X server.\n'
+                'Fix: run the headless terminal teleop instead '
+                '(no display needed):\n'
+                '  ./robot_start.sh --role pc --robot-host <ip> '
+                '--teleop-mode keyboard_terminal\n'
+                'Or set up a display (WSLg on Windows 11, or VcXsrv on '
+                'Windows 10). See docs/QUICKSTART.md.',
+                exc,
+            )
+            pygame.quit()
+            return
         font = pygame.font.Font(None, 28)
         clock = pygame.time.Clock()
 

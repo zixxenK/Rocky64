@@ -50,6 +50,27 @@ Or for PS5 DualSense:
     --teleop-mode ps5
 ```
 
+> **Running under WSL?** `keyboard_servo` opens a pygame **window**, which
+> needs a display server. WSL has none by default, so the window shows up
+> blank/frozen. Use `--teleop-mode keyboard_terminal` (below) for a
+> no-display option, or set up a display — see
+> [Teleop on WSL / no display](#teleop-on-wsl--no-display).
+
+#### Headless keyboard teleop (no display — recommended for WSL)
+
+```bash
+./robot_start.sh --role pc \
+    --robot-host 192.168.1.159 \
+    --teleop-mode keyboard_terminal
+```
+
+This drives the robot straight from the terminal — **no window, no X
+server**. Keep the terminal focused and use the same WASD/QE keys. It runs
+`ros2 run robot_control keyboard_terminal_teleop`, which reads keystrokes
+from stdin, so it must be run in an interactive terminal (not piped). The
+camera stream is not shown here; open `http://<camera-ip>/stream` in a
+browser to watch video.
+
 ### Option B — Windows (no ROS 2 installed)
 
 Use the direct SSH bridge that pipes PS5 input straight to the Arduino
@@ -120,7 +141,52 @@ export FASTRTPS_DEFAULT_PROFILES_FILE=.../config/fastdds_unicast.xml
 Copy the same file to the PC and export the env var there too before
 running the PC-side launch.
 
-## Keyboard controls (keyboard_servo mode)
+## Teleop on WSL / no display
+
+ROS 2 itself runs fine in WSL, but the GUI teleop (`keyboard_servo`, which
+uses pygame) and the OpenCV `stream_viewer` window both need a **display
+server**. WSL has none out of the box, so a GUI window appears blank or
+frozen — this is the most common "I launched teleop but can't open the
+window" symptom. Three ways to deal with it:
+
+1. **Headless terminal teleop (recommended — zero setup).** Use
+   `--teleop-mode keyboard_terminal`. It drives from the terminal with no
+   window at all. See
+   [Headless keyboard teleop](#headless-keyboard-teleop-no-display--recommended-for-wsl)
+   above.
+
+2. **WSLg (Windows 11).** WSL ships with built-in GUI support. Confirm it
+   works:
+
+   ```bash
+   echo $DISPLAY        # should print something like :0
+   ```
+
+   If `$DISPLAY` is empty, update WSL from PowerShell and reopen your
+   terminal:
+
+   ```powershell
+   wsl --update
+   wsl --shutdown
+   ```
+
+3. **VcXsrv / X server (Windows 10).** Install
+   [VcXsrv](https://sourceforge.net/projects/vcxsrv/), launch **XLaunch**
+   with *"Disable access control"* checked, then in WSL:
+
+   ```bash
+   export DISPLAY=$(awk '/nameserver/{print $2}' /etc/resolv.conf):0
+   export LIBGL_ALWAYS_INDIRECT=1
+   ```
+
+   Add those two lines to `~/.bashrc` to make them persistent.
+
+Regardless of display, the camera stream is always viewable in a browser at
+`http://<camera-ip>/stream` (no ROS or display required). When no display
+is present, `stream_viewer` logs that it is running headless instead of
+crashing.
+
+## Keyboard controls (keyboard_servo / keyboard_terminal modes)
 
 | Key | Action |
 |-----|--------|
@@ -130,7 +196,13 @@ running the PC-side launch.
 | D   | Turn right |
 | Q   | Camera servo left |
 | E   | Camera servo right |
+| Space / K | Stop (terminal mode) |
 | Esc | Quit |
+
+Both modes share the same keys. `keyboard_servo` reads held keys from a
+pygame window; `keyboard_terminal` reads them from the terminal (relying on
+key auto-repeat plus a short hold timeout), so tap-and-hold to keep moving
+and tap **Space**/**K** to stop immediately.
 
 ## PS5 DualSense controls
 

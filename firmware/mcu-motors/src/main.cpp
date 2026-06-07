@@ -16,6 +16,10 @@ void applyCameraServo(int position);
 const unsigned long HEARTBEAT_TIMEOUT_MS = 200;
 const size_t SERIAL_BUF_SIZE = 32;
 
+// Geared DC motors need a minimum duty cycle to overcome static friction.
+// Below this the coils buzz/hum without turning. Tune 70-95 to your motors.
+const int MIN_MOVE_PWM = 80;
+
 const uint8_t LEFT_SPEED_PIN = 5; 
 const uint8_t LEFT_DIR_A = 7;     
 const uint8_t LEFT_DIR_B = 8;     
@@ -98,11 +102,13 @@ void setMotor(int motorId, char dir, int speed) {
 
   // --- REVERSED LOGIC FOR 180 DEGREE CHASSIS ROTATION ---
   if (dir == 'F') { 
+    if (speed > 0 && speed < MIN_MOVE_PWM) speed = MIN_MOVE_PWM;
     digitalWrite(dirA, LOW);   
     digitalWrite(dirB, HIGH);  
     analogWrite(speedPin, speed);
     isMoving = true;
   } else if (dir == 'B') { 
+    if (speed > 0 && speed < MIN_MOVE_PWM) speed = MIN_MOVE_PWM;
     digitalWrite(dirA, HIGH);  
     digitalWrite(dirB, LOW);   
     analogWrite(speedPin, speed);

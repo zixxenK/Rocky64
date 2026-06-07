@@ -18,7 +18,7 @@
 │    ├── MPU6050 (dedicated I2C slot)         │
 │    ├── Ultrasonic sensor (4-pin HC-SR04)    │
 │    ├── Servo (ultrasonic pan) → servo port  │
-│    ├── ESP32-S3 → 4-pin UART slot           │
+│    ├── ESP32-S3 → 4-pin UART slot (UNUSED)  │
 │    └── VIN/GND ◄── SmartCar v4 battery      │
 └─────────────────────────────────────────────┘
 ```
@@ -41,6 +41,12 @@ USB-B cable and cut or tape the **red wire** (pin 1 / VBUS).  The black
 (GND), green (D+), and white (D−) wires must remain connected.
 
 ### 2. UART logic levels — add a level shifter
+
+> **Not applicable to the default build.** The ESP32 motor relay has been
+> removed — the ESP32 is camera-only and its 4-pin UART is left unplugged
+> (motor control runs solely over the Rock64↔Arduino USB link). The notes
+> below apply *only* if you deliberately re-enable a wired ESP32→Arduino
+> UART path.
 
 The ESP32-S3 runs on **3.3V logic**.  The Arduino Uno R3 runs on **5V
 logic**.  The 4-pin UART slot on the Smart Car Shield likely passes 5V
@@ -82,7 +88,7 @@ All devices must share a **common ground reference**:
 - Shield GND → Arduino GND (via stacking headers — automatic)
 - Arduino GND → Rock64 GND (via USB cable — automatic if data-only
   cable still has GND connected)
-- ESP32 GND → Shield GND (via the 4-pin UART slot — verify this)
+- ESP32 GND → Shield GND (only relevant if the 4-pin UART relay is used; unused by default)
 
 If grounds are not connected, serial communication will be unreliable
 (garbled bytes, random disconnects).
@@ -107,7 +113,8 @@ heavy motor load — consider a LiPo pack with a proper BMS.
 
 The ESP32-S3 has a USB-C port that can optionally connect to the Rock64's
 second USB-A 2.0 port.  This is **not currently needed** — the ESP32
-communicates via WiFi (camera stream) and UART (motor relay from shield).
+communicates via WiFi (camera stream) only. The UART motor relay has been
+removed, so motor control runs exclusively over the Rock64↔Arduino USB link.
 
 The USB-C connection would be useful for:
 - Flashing new firmware from the Rock64 instead of a PC

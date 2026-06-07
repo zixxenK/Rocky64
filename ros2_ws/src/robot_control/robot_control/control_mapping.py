@@ -24,7 +24,17 @@ def twist_to_wheel_speeds(
     angular_z: float,
     linear_scale: float = 200.0,
     angular_scale: float = 100.0,
+    limit: int = 255,
 ) -> Tuple[int, int]:
-    left_speed = clamp_speed(linear_x * linear_scale + angular_z * angular_scale)
-    right_speed = clamp_speed(linear_x * linear_scale - angular_z * angular_scale)
-    return left_speed, right_speed
+    left_raw = linear_x * linear_scale + angular_z * angular_scale
+    right_raw = linear_x * linear_scale - angular_z * angular_scale
+
+    # Scale both wheels together when over the PWM limit so the turn ratio is
+    # preserved. Clamping each wheel independently would distort arcs at speed.
+    max_raw = max(abs(left_raw), abs(right_raw))
+    if max_raw > limit:
+        scale = limit / max_raw
+        left_raw *= scale
+        right_raw *= scale
+
+    return clamp_speed(left_raw, limit), clamp_speed(right_raw, limit)

@@ -1,6 +1,5 @@
 #include "esp_camera.h"
 #include <WiFi.h>
-#include <WiFiUdp.h>
 #include <ESPAsyncWebServer.h>
 #include <esp_timer.h>
 #include <img_converters.h>
@@ -16,11 +15,6 @@ const bool use_station_mode = true;
 const char* sta_ssid = "TELUS4424";
 const char* sta_password = "camncarm2021";
 
-// ---- UDP motor relay ----
-WiFiUDP udp;
-const unsigned int localUdpPort = 8888;
-char udpPacketBuffer[255];
-
 // ---- Async web server (non-blocking, multi-client) ----
 AsyncWebServer server(80);
 
@@ -34,12 +28,11 @@ bool startWiFiStation();
 IPAddress startAccessPoint();
 void onWiFiEvent(WiFiEvent_t event);
 void startCameraServer();
-void udpRelayTask(void* param);
 
 void setup() {
   Serial.begin(115200);
   Serial.println();
-  Serial.println("Starting ESP32-S3 camera + UDP Bridge firmware...");
+  Serial.println("Starting ESP32-S3 camera firmware...");
   Serial.println("Camera model: ESP32S3_EYE");
 
   camera_config_t config;
@@ -86,30 +79,14 @@ void setup() {
   }
 
   if (use_station_mode && strlen(sta_ssid) > 0 && strlen(sta_password) > 0) {
-    if (startWiFiStation()) {
-      udp.begin(localUdpPort);
-    } else {
+    if (!startWiFiStation()) {
       startAccessPoint();
-      udp.begin(localUdpPort);
     }
   } else {
     startAccessPoint();
-    udp.begin(localUdpPort);
   }
 
   startCameraServer();
-
-  // Start UDP relay on a dedicated FreeRTOS task (core 0) so it never
-  // competes with the async web server running on core 1.
-  xTaskCreatePinnedToCore(
-      udpRelayTask,   // task function
-      "udpRelay",     // name
-      4096,           // stack size
-      NULL,           // parameter
-      1,              // priority
-      NULL,           // task handle
-      0               // core 0 (web server runs on core 1)
-  );
 }
 
 bool startWiFiStation() {
@@ -142,7 +119,6 @@ void onWiFiEvent(WiFiEvent_t event) {
   if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
     wifiConnected = true;
     accessPointActive = false;
-    udp.begin(localUdpPort);
   } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
     wifiConnected = false;
     WiFi.reconnect();
@@ -157,22 +133,6 @@ IPAddress startAccessPoint() {
   return WiFi.softAPIP();
 }
 
-// ---- UDP relay task (runs on core 0, never blocked by HTTP) ----
-void udpRelayTask(void* param) {
-  (void)param;
-  for (;;) {
-    int packetSize = udp.parsePacket();
-    if (packetSize) {
-      int len = udp.read(udpPacketBuffer, sizeof(udpPacketBuffer) - 1);
-      if (len > 0) {
-        udpPacketBuffer[len] = '\0';
-        Serial.print(udpPacketBuffer);
-      }
-    }
-    vTaskDelay(1);  // yield to other tasks (1 tick ≈ 1ms)
-  }
-}
-
 void loop() {
   // WiFi reconnect watchdog (lightweight, non-blocking)
   if (use_station_mode && !wifiConnected && millis() - lastWiFiReconnect >= wifiReconnectInterval) {
@@ -181,14 +141,14 @@ void loop() {
       WiFi.reconnect();
     }
   }
-  delay(100);  // main loop only handles WiFi reconnect now
+  delay(100);  // main loop only handles WiFi reconnect
 }
 
 // ---- Async web server routes ----
 
 // MJPEG stream handler — each client gets its own async response that
 // sends frames independently.  Multiple clients can connect at once
-// without blocking the server or the UDP relay.
+// without blocking the server.
 class MjpegStreamResponse : public AsyncAbstractResponse {
   public:
     MjpegStreamResponse() {

@@ -35,6 +35,8 @@ setup(
             'arduino_serial_bridge = robot_control.arduino_serial_bridge:main',
             'esp32_camera_bridge = robot_control.esp32_camera_bridge:main',
             'keyboard_teleop = robot_control.keyboard_teleop:main',
+            'keyboard_terminal_teleop = '
+            'robot_control.keyboard_terminal_teleop:main',
             'ps5_ros_bridge = robot_control.ps5_ros_bridge:main',
             'robot_control_node = robot_control.robot_control_node:main',
             'stream_viewer = robot_control.stream_viewer:main',

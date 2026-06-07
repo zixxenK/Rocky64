@@ -13,7 +13,9 @@
 #    --serial-port  <path>              Serial device   (default: /dev/ttyACM0)
 #    --baud-rate    <baud>              Serial baud     (default: 115200)
 #    --namespace    <name>              Robot namespace (default: rock64_1)
-#    --teleop-mode  <keyboard_servo|ps5>  Teleop mode for PC role (default: keyboard_servo)
+#    --teleop-mode  <keyboard_servo|keyboard_terminal|ps5>
+#                                       Teleop mode for PC role (default: keyboard_servo)
+#                                       keyboard_terminal needs NO display (best for WSL)
 #    --network-mode <station|ap>        Network mode    (default: station)
 #    --expected-ssid <ssid>             Expected WiFi SSID (default: TELUS4424)
 #    --robot-host   <ip>                Robot IP (required for --role pc)
@@ -124,6 +126,10 @@ done
 # ---------------------------------------------------------------------------
 [[ "$ROLE" == "rock64" || "$ROLE" == "pc" ]] || fail "--role must be rock64 or pc"
 [[ "$NETWORK_MODE" == "station" || "$NETWORK_MODE" == "ap" ]] || fail "--network-mode must be station or ap"
+case "$TELEOP_MODE" in
+  keyboard_servo|keyboard_terminal|ps5) ;;
+  *) fail "--teleop-mode must be keyboard_servo, keyboard_terminal, or ps5" ;;
+esac
 if [[ "$ROLE" == "pc" && -z "$ROBOT_HOST" ]]; then
   fail "--robot-host is required for --role pc  (e.g. --robot-host 192.168.0.110)"
 fi
@@ -380,6 +386,16 @@ if [[ "$ROLE" == "pc" && "$TELEOP_MODE" == "ps5" ]]; then
   fi
 fi
 
+if [[ "$ROLE" == "pc" && "$TELEOP_MODE" == "keyboard_servo" && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+  echo ""
+  warn "keyboard_servo opens a GUI window but no display was detected (\$DISPLAY is unset)."
+  warn "On WSL the window will appear blank/frozen. Options:"
+  warn "  - Easiest: use the headless terminal teleop (no display needed):"
+  warn "      ./robot_start.sh --role pc --robot-host $ROBOT_HOST --teleop-mode keyboard_terminal"
+  warn "  - Windows 11: ensure WSLg works ('wsl --update', then reopen WSL; \$DISPLAY should be :0)"
+  warn "  - Windows 10: install VcXsrv and 'export DISPLAY=\$(awk \"/nameserver/{print \\\$2}\" /etc/resolv.conf):0'"
+fi
+
 # ---------------------------------------------------------------------------
 # Launch
 # ---------------------------------------------------------------------------
@@ -410,7 +426,15 @@ else
   info "  robot     : $ROBOT_HOST"
   echo ""
 
-  if [[ "$TELEOP_MODE" == "ps5" ]]; then
+  if [[ "$TELEOP_MODE" == "keyboard_terminal" ]]; then
+    # Headless terminal teleop: needs no display, so run the node directly
+    # (via `ros2 run`) to give it the real terminal's stdin for keystrokes.
+    info "  headless terminal teleop — drive from THIS terminal (no window)"
+    exec ros2 run robot_control keyboard_terminal_teleop \
+      --cmd-vel-topic cmd_vel \
+      --camera-servo-topic camera_servo \
+      --ros-args -r __ns:="/$ROBOT_NAMESPACE"
+  elif [[ "$TELEOP_MODE" == "ps5" ]]; then
     exec ros2 launch robot_bringup ps5_teleop.launch.py \
       robot_namespace:="$ROBOT_NAMESPACE" \
       joystick_index:=0 \

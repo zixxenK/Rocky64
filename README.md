@@ -59,7 +59,14 @@ cd ros2_ws
 
 # Operator PC (PS5 teleop)
 ./robot_start.sh --role pc --robot-host 192.168.1.159 --teleop-mode ps5
+
+# Operator PC on WSL / no display (headless keyboard — no window needed)
+./robot_start.sh --role pc --robot-host 192.168.1.159 --teleop-mode keyboard_terminal
 ```
+
+> On WSL the windowed `keyboard_servo` teleop can't open (no display). Use
+> `--teleop-mode keyboard_terminal` to drive from the terminal, or set up a
+> display — see [`docs/QUICKSTART.md`](docs/QUICKSTART.md#teleop-on-wsl--no-display).
 
 Camera preview (no ROS needed): open `http://<esp32-ip>/stream` in a browser.
 

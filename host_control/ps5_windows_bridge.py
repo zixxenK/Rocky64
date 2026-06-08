@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-ps5_windows_bridge.py — Windows-native PS5 DualSense → Rock64 motor bridge.
+ps5_windows_bridge.py — Windows-native PS5 DualSense -> Rock64 motor bridge.
 
 Reads the PS5 controller via pygame (no WSL/evdev required), computes
 differential drive motor speeds, and streams serial motor packets to the
 Rock64 over a persistent SSH connection:
 
-  ssh rock64@<ROCK64_IP> "stty -F /dev/ttyUSB0 115200 raw; cat > /dev/ttyUSB0"
+  ssh rock64@<ROCK64_IP> "stty -F /dev/ttyACM0 115200 raw; cat > /dev/ttyACM0"
 
 Usage:
   python host_control/ps5_windows_bridge.py
-  python host_control/ps5_windows_bridge.py --host 192.168.1.159 --port /dev/ttyUSB0
+  python host_control/ps5_windows_bridge.py --host 192.168.1.159 --port /dev/ttyACM0
   python host_control/ps5_windows_bridge.py --list-joysticks
 
 Requirements (install in Windows Python, not WSL):
@@ -103,7 +103,7 @@ def open_ssh_pipe(host: str, serial_port: str, baud: int, ssh_key: str,
         print(" ", " ".join(ssh_cmd))
         return None
 
-    print(f"[bridge] Connecting to {host} → {serial_port} at {baud} baud...")
+    print(f"[bridge] Connecting to {host} -> {serial_port} at {baud} baud...")
     try:
         ssh_proc = subprocess.Popen(
             ssh_cmd,
@@ -155,8 +155,8 @@ def run_bridge(host: str, serial_port: str, baud: int, ssh_key: str,
     print(f"[bridge] Using joystick [{joystick_index}]: {js.get_name()}")
     print(f"         axes={js.get_numaxes()}  buttons={js.get_numbuttons()}")
     print()
-    print("  Left stick Y  → forward / back")
-    print("  Right stick X → turn left / right")
+    print("  Left stick Y  -> forward / back")
+    print("  Right stick X -> turn left / right")
     print("  Press Ctrl+C to stop (sends zero-speed packet first).")
     print()
 
@@ -166,7 +166,7 @@ def run_bridge(host: str, serial_port: str, baud: int, ssh_key: str,
     def send(left: int, right: int):
         pkt = motor_packet(1, right) + motor_packet(2, left)  # motor 1=right, 2=left
         if dry_run:
-            print(f"  [dry] L={left:+4d} R={right:+4d}  →  {pkt.decode().strip()}")
+            print(f"  [dry] L={left:+4d} R={right:+4d}  ->  {pkt.decode().strip()}")
         else:
             try:
                 ssh_proc.stdin.write(pkt)
@@ -221,10 +221,10 @@ def run_bridge(host: str, serial_port: str, baud: int, ssh_key: str,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Windows PS5 DualSense → Rock64 motor bridge (no ROS2, no WSL)"
+        description="Windows PS5 DualSense -> Rock64 motor bridge (no ROS2, no WSL)"
     )
     parser.add_argument('--host', default='192.168.1.159', help='Rock64 IP address')
-    parser.add_argument('--port', default='/dev/ttyUSB0', help='Serial port on Rock64')
+    parser.add_argument('--port', default='/dev/ttyACM0', help='Serial port on Rock64')
     parser.add_argument('--baud', type=int, default=115200)
     parser.add_argument('--ssh-key', default=r'C:\Users\ZIXXE\.ssh\rock64_sync',
                         help='Path to SSH private key for rock64 user')

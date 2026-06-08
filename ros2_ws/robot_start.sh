@@ -17,6 +17,8 @@
 #                                       Teleop mode for PC role (default: keyboard_servo)
 #                                       keyboard_terminal needs NO display (best for WSL)
 #    --network-mode <station|ap>        Network mode    (default: station)
+#    --stream-port  <port>              If >0 (rock64 role), re-stream the camera
+#                                       to the whole LAN on this port (e.g. 8080)
 #    --expected-ssid <ssid>             Expected WiFi SSID (default: TELUS4424)
 #    --robot-host   <ip>                Robot IP (required for --role pc)
 #    --domain-id    <id>                ROS_DOMAIN_ID   (default: 0)
@@ -88,6 +90,7 @@ BAUD_RATE="115200"
 ROBOT_NAMESPACE="rock64_1"
 TELEOP_MODE="keyboard_servo"
 NETWORK_MODE="station"
+STREAM_PORT="0"
 EXPECTED_SSID="TELUS4424"
 ROBOT_HOST=""
 DOMAIN_ID="0"
@@ -108,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     --namespace)      ROBOT_NAMESPACE="${2:-}"; shift 2 ;;
     --teleop-mode)    TELEOP_MODE="${2:-}";    shift 2 ;;
     --network-mode)   NETWORK_MODE="${2:-}";   shift 2 ;;
+    --stream-port)    STREAM_PORT="${2:-}";    shift 2 ;;
     --expected-ssid)  EXPECTED_SSID="${2:-}";  shift 2 ;;
     --robot-host)     ROBOT_HOST="${2:-}";     shift 2 ;;
     --domain-id)      DOMAIN_ID="${2:-}";      shift 2 ;;
@@ -413,11 +417,39 @@ if [[ "$ROLE" == "rock64" ]]; then
   info "  camera    : $CAMERA_URL"
   echo ""
 
-  exec ros2 launch robot_bringup rock64_bringup.launch.py \
-    robot_namespace:="$ROBOT_NAMESPACE" \
-    serial_port:="$SERIAL_PORT" \
-    baud_rate:="$BAUD_RATE" \
-    camera_url:="$CAMERA_URL"
+  # Optional: re-stream the camera to the whole LAN from this Rock64 so any
+  # device (phone/laptop) can watch without fighting the ESP32 for its single
+  # high-bandwidth stream. Runs in the background; cleaned up on exit.
+  RESTREAM_PID=""
+  if [[ "${STREAM_PORT:-0}" =~ ^[0-9]+$ && "$STREAM_PORT" -gt 0 ]]; then
+    _restream_py="$WORKSPACE/host_control/lan_camera_restream.py"
+    if [[ -f "$_restream_py" ]]; then
+      info "  LAN re-stream: starting on port $STREAM_PORT (upstream $CAMERA_URL)"
+      python3 "$_restream_py" --upstream "$CAMERA_URL" --port "$STREAM_PORT" &
+      RESTREAM_PID=$!
+      info "  LAN re-stream: open http://<this-rock64-ip>:$STREAM_PORT/ on any LAN device"
+    else
+      warn "  --stream-port set but $_restream_py not found; skipping re-stream."
+    fi
+  fi
+
+  # When the re-streamer is running we can't 'exec' (that would replace the
+  # shell and orphan it); run the launch in the foreground and tear the
+  # re-streamer down when it exits.
+  if [[ -n "$RESTREAM_PID" ]]; then
+    trap 'kill "$RESTREAM_PID" 2>/dev/null || true' EXIT INT TERM
+    ros2 launch robot_bringup rock64_bringup.launch.py \
+      robot_namespace:="$ROBOT_NAMESPACE" \
+      serial_port:="$SERIAL_PORT" \
+      baud_rate:="$BAUD_RATE" \
+      camera_url:="$CAMERA_URL"
+  else
+    exec ros2 launch robot_bringup rock64_bringup.launch.py \
+      robot_namespace:="$ROBOT_NAMESPACE" \
+      serial_port:="$SERIAL_PORT" \
+      baud_rate:="$BAUD_RATE" \
+      camera_url:="$CAMERA_URL"
+  fi
 
 else
   info "Launch: operator_session"

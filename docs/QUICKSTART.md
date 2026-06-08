@@ -124,6 +124,30 @@ Troubleshooting](#dds-discovery-troubleshooting) below.
 
 Open in any browser: `http://192.168.1.153/stream`
 
+> **Can't reach the camera from your PC?** The ESP32 is on the robot's LAN.
+> Your PC must be on the **same** WiFi/subnet (`192.168.1.x`, on `TELUS4424`,
+> no VPN/Ethernet/guest network). Check with `ipconfig`, then
+> `ping 192.168.1.153`. If the camera is up but only the Rock64 can reach it,
+> use the LAN re-stream below.
+
+### LAN re-stream (watch from any device — recommended)
+
+Run a re-streamer **on the Rock64** so it holds the single ESP32 connection and
+fans frames out to every device on the LAN (phones, laptops, tablets):
+
+```bash
+# on the Rock64
+python3 ~/rock64_ros2_ws/host_control/lan_camera_restream.py --camera-ip 192.168.1.153
+```
+
+Then on any device on the same WiFi open `http://<rock64-ip>:8080/`
+(`/stream`, `/snapshot.jpg`, and `/status` are also available). Or start it
+automatically with the robot:
+
+```bash
+./robot_start.sh --stream-port 8080
+```
+
 ### ROS 2 image viewer
 
 ```bash

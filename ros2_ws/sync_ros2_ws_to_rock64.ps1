@@ -85,6 +85,7 @@ $itemsToSync = @(
     "requirements.txt",
     "fix_bashrc_ros_overlay.sh",
     "robot_start.sh",
+    "setup_mdns_rock64.sh",
     "host_control",
     "src"
 )
@@ -95,7 +96,8 @@ $directoryItems = @("host_control", "src")
 
 $shellScripts = @(
     "fix_bashrc_ros_overlay.sh",
-    "robot_start.sh"
+    "robot_start.sh",
+    "setup_mdns_rock64.sh"
 )
 
 $remote = "$UserName@$HostName"

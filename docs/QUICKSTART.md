@@ -155,6 +155,33 @@ ros2 run rqt_image_view rqt_image_view \
     --ros-args -r image:=/rock64_1/camera/image_raw
 ```
 
+## Stable hostnames (mDNS) — stop chasing DHCP IPs
+
+DHCP can hand the Rock64 and camera new IPs on any reboot, which breaks
+hard-coded addresses. mDNS gives them stable `.local` names instead.
+
+**Rock64 → `rock64.local`** (run once on the Rock64, no firmware needed):
+
+```bash
+./setup_mdns_rock64.sh        # installs + enables avahi-daemon
+```
+
+Then from any device on the WiFi: `ssh rock64@rock64.local`, and the LAN
+re-stream at `http://rock64.local:8080/`. (Windows 10/11 and macOS resolve
+`.local` out of the box; most Linux distros do too via nss-mdns.)
+
+**Camera → `esp32-cam.local`** (requires re-flashing the ESP32): the firmware
+advertises itself over mDNS, so once flashed you can use the name everywhere:
+
+```bash
+./robot_start.sh --camera-ip esp32-cam.local
+python3 host_control/lan_camera_restream.py --upstream http://esp32-cam.local/stream
+```
+
+**No-code fallback:** if mDNS is flaky on your network, add **DHCP
+reservations** in your router (pin the Rock64 and camera MACs to fixed IPs).
+Then the existing IP-based commands keep working across reboots.
+
 ## DDS Discovery Troubleshooting
 
 ROS 2 Foxy uses FastDDS with multicast discovery by default.  Many WiFi

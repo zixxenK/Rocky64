@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$HostName = "rock64",
     [string]$UserName = "",
     [string]$TargetDir = "~/rock64_ros2_ws",
@@ -90,7 +90,7 @@ $itemsToSync = @(
 )
 
 # Directories that need to be cleaned on the remote before scp to avoid
-# the scp -r nesting bug (scp -r dir target/dir → target/dir/dir).
+# the scp -r nesting bug (scp -r dir target/dir -> target/dir/dir).
 $directoryItems = @("host_control", "src")
 
 $shellScripts = @(
@@ -107,7 +107,7 @@ $sshTargetDir = $TargetDir -replace '^~', '$HOME'
 $scpTargetDir = $TargetDir -replace ' ', '\ '
 
 # ---------------------------------------------------------------------------
-# SSH argument builder — centralises port, key, and host-key options
+# SSH argument builder - centralises port, key, and host-key options
 # ---------------------------------------------------------------------------
 function Get-SshArgs {
     param([switch]$BatchMode)
@@ -128,7 +128,7 @@ else           { Write-Host "Transfer    : scp (rsync not found)" }
 Write-Host ""
 
 # ---------------------------------------------------------------------------
-# STEP 1 — Connectivity & key-based auth
+# STEP 1 - Connectivity & key-based auth
 # ---------------------------------------------------------------------------
 $keyAuthWorks = $false
 
@@ -164,7 +164,7 @@ Try rerun with explicit IP and port:
 }
 
 # ---------------------------------------------------------------------------
-# STEP 2 — SSH key bootstrap (optional)
+# STEP 2 - SSH key bootstrap (optional)
 # ---------------------------------------------------------------------------
 if (-not $keyAuthWorks -and -not $NoKeySetup) {
     if ($SetupKey -or (-not $WhatIf)) {
@@ -182,14 +182,14 @@ if (-not $keyAuthWorks -and -not $NoKeySetup) {
                     $defaultKey = Join-Path $HOME ".ssh" "id_ed25519"
                 }
                 if (-not (Test-Path -LiteralPath $defaultKey)) {
-                    Write-Host "  No SSH key found — generating ed25519 key pair..."
+                    Write-Host "  No SSH key found - generating ed25519 key pair..."
                     $sshDir = Split-Path $defaultKey
                     if (-not (Test-Path -LiteralPath $sshDir)) {
                         New-Item -ItemType Directory -Path $sshDir -Force | Out-Null
                     }
                     & ssh-keygen -t ed25519 -N '""' -f $defaultKey -q
                     if ($LASTEXITCODE -ne 0) {
-                        Write-Host "  WARNING: ssh-keygen failed — continuing with password auth."
+                        Write-Host "  WARNING: ssh-keygen failed - continuing with password auth."
                         $defaultKey = ""
                     } else {
                         Write-Host "  Key generated: $defaultKey"
@@ -211,7 +211,7 @@ if (-not $keyAuthWorks -and -not $NoKeySetup) {
                     # Update IdentityFile so subsequent steps use it.
                     if (-not $IdentityFile) { $IdentityFile = $keyPath }
                 } catch {
-                    Write-Host "  WARNING: Could not install key — continuing with password auth."
+                    Write-Host "  WARNING: Could not install key - continuing with password auth."
                 }
             }
         }
@@ -219,7 +219,7 @@ if (-not $keyAuthWorks -and -not $NoKeySetup) {
 }
 
 # ---------------------------------------------------------------------------
-# STEP 3 — Create target directory
+# STEP 3 - Create target directory
 # ---------------------------------------------------------------------------
 Write-Step "Create target directory"
 $mkdirCmd = "mkdir -p `"$sshTargetDir`""
@@ -230,7 +230,7 @@ if ($WhatIf) {
 }
 
 # ---------------------------------------------------------------------------
-# STEP 4 — Transfer files
+# STEP 4 - Transfer files
 # ---------------------------------------------------------------------------
 if ($hasRsync) {
     # rsync: single connection, idempotent, --delete removes stale files.
@@ -258,7 +258,7 @@ if ($hasRsync) {
         )
 
         if ($isDir) {
-            # Trailing / on source → sync contents into remote/item/
+            # Trailing / on source -> sync contents into remote/item/
             $rsyncItemArgs += "$localPath/"
             $rsyncItemArgs += "${remote}:${TargetDir}/${item}/"
         } else {
@@ -275,7 +275,7 @@ if ($hasRsync) {
     }
 } else {
     # scp fallback: clean remote directories first to avoid scp -r nesting.
-    Write-Step "Sync files (scp — rsync not available)"
+    Write-Step "Sync files (scp - rsync not available)"
 
     # Pre-clean remote directories to avoid scp -r nesting on re-runs.
     $dirsToClean = @()
@@ -313,7 +313,7 @@ if ($hasRsync) {
 }
 
 # ---------------------------------------------------------------------------
-# STEP 5 — Normalise line endings + set executable bits (single SSH call)
+# STEP 5 - Normalise line endings + set executable bits (single SSH call)
 # ---------------------------------------------------------------------------
 Write-Step "Fix line endings and set executable bits"
 

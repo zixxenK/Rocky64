@@ -73,14 +73,29 @@ browser to watch video.
 
 ### Option B — Windows (no ROS 2 installed)
 
-Use the direct SSH bridge that pipes PS5 input straight to the Arduino
-serial port, bypassing ROS entirely:
+Use the direct SSH bridge that pipes input straight to the Arduino serial
+port, bypassing ROS entirely.
+
+**Recommended — unified control (PS5 *or* WASD, switch with Tab):**
+
+```powershell
+python host_control/windows_control.py --host 192.168.1.159
+```
+
+It auto-detects a DualSense; press **Tab** any time to switch between the
+controller and **WASD keyboard** (`W/S` drive, `A/D` turn, `Q/E` camera servo,
+`Space` stop, `Esc` quit). Start in a specific mode with
+`--source keyboard` or `--source controller`. Use `--dry-run` to print packets
+without driving, and `--list-joysticks` to find your controller's index.
+
+**PS5-only (original):**
 
 ```powershell
 python host_control/ps5_windows_bridge.py --host 192.168.1.159
 ```
 
-This requires `pygame` and `ssh` (Git for Windows ships with ssh).
+Both require `pygame` and `ssh` (Git for Windows ships with ssh); the keyboard
+path uses the stdlib `msvcrt`, so no extra install is needed for WASD.
 
 ## 3. Verify connectivity
 

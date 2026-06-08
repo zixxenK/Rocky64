@@ -177,7 +177,7 @@ def run(host, serial_port, baud, ssh_key, source, joystick_index,
         try:
             ssh_proc.stdin.write(data)
             ssh_proc.stdin.flush()
-        except BrokenPipeError:
+        except (BrokenPipeError, OSError):
             print("\nERROR: SSH pipe closed. Is the Rock64 still reachable?")
             raise
 
@@ -320,6 +320,8 @@ def run(host, serial_port, baud, ssh_key, source, joystick_index,
 
     except KeyboardInterrupt:
         pass
+    except (BrokenPipeError, OSError):
+        print("\nSSH pipe lost — Rock64 disconnected or serial port changed.")
     finally:
         print("\n[control] Stopping - sending zero speed...")
         try:

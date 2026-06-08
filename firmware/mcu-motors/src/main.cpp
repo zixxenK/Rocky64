@@ -27,6 +27,8 @@ const uint8_t RIGHT_SPEED_PIN = 6;
 const uint8_t RIGHT_DIR_A = 9;    
 const uint8_t RIGHT_DIR_B = 11;   
 
+const uint8_t STBY_PIN = 4;  // TB6612FNG standby — must be driven HIGH
+
 const uint8_t MY_ROBOT_SERVO_PIN = 3; 
 const int CAMERA_SERVO_CENTER = 90;
 
@@ -52,6 +54,9 @@ void setup() {
   pinMode(RIGHT_SPEED_PIN, OUTPUT);
   pinMode(RIGHT_DIR_A, OUTPUT);
   pinMode(RIGHT_DIR_B, OUTPUT);
+
+  pinMode(STBY_PIN, OUTPUT);
+  digitalWrite(STBY_PIN, HIGH);  // force motor driver out of standby
 
   stopMotors();
 

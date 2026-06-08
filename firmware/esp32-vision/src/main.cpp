@@ -1,11 +1,17 @@
 #include "esp_camera.h"
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <ESPAsyncWebServer.h>
 #include <esp_timer.h>
 #include <img_converters.h>
 
 #define CAMERA_MODEL_ESP32S3_EYE
 #include "camera_pins.h"
+
+// ---- Network identity ----
+// Advertised over mDNS so the camera is reachable at http://esp32-cam.local/
+// regardless of the DHCP address it is assigned.
+const char* mdns_hostname = "esp32-cam";
 
 // ---- Network credentials ----
 const char* ap_ssid = "ESP32-CAM-AP";
@@ -28,6 +34,7 @@ bool startWiFiStation();
 IPAddress startAccessPoint();
 void onWiFiEvent(WiFiEvent_t event);
 void startCameraServer();
+void startMdns();
 
 void setup() {
   Serial.begin(115200);
@@ -87,13 +94,28 @@ void setup() {
   }
 
   startCameraServer();
+
+  if (wifiConnected) {
+    startMdns();
+  }
+}
+
+// Advertise the camera over mDNS (http://esp32-cam.local/). Safe to call only
+// after the station has an IP; in AP mode mDNS is skipped.
+void startMdns() {
+  if (MDNS.begin(mdns_hostname)) {
+    MDNS.addService("http", "tcp", 80);
+    Serial.printf("mDNS responder started: http://%s.local/\n", mdns_hostname);
+  } else {
+    Serial.println("Error starting mDNS responder.");
+  }
 }
 
 bool startWiFiStation() {
   WiFi.disconnect(true);
   WiFi.mode(WIFI_STA);
   accessPointActive = false;
-  WiFi.setHostname("esp32-cam");
+  WiFi.setHostname(mdns_hostname);
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
   WiFi.setAutoReconnect(true);
   WiFi.setSleep(false);

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Quick dependency check — works on the Rock64 and WSL/Linux dev hosts.
+# Quick dependency check - works on the Rock64 and WSL/Linux dev hosts.
 set -u
 
 source /opt/ros/foxy/setup.bash 2>/dev/null || true
@@ -19,7 +19,7 @@ echo "=== opencv ==="
 python3 -c "import cv2; print('cv2 version:', cv2.__version__)" 2>&1
 
 echo "=== colcon workspace ==="
-# Auto-detect workspace — try common locations.
+# Auto-detect workspace - try common locations.
 WS=""
 for candidate in \
     "$HOME/rock64_ros2_ws" \
@@ -38,7 +38,7 @@ if [[ -n "$WS" ]]; then
     python3 -c "import robot_control; print('robot_control pkg: OK')" 2>&1
     echo "workspace install found at $WS/install"
 else
-    echo "workspace install NOT found — need to run colcon build"
+    echo "workspace install NOT found - need to run colcon build"
     echo "  checked: ~/rock64_ros2_ws, ~/ros2_ws, ~/Rock64 Robot/ros2_ws, /mnt/c/Desktop/Rock64 Robot/ros2_ws"
 fi
 

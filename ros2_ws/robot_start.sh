@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  robot_start.sh  —  One-shot Rock64 robot startup
+#  robot_start.sh  -  One-shot Rock64 robot startup
 #
 #  Usage (Rock64 hardware side):
 #    ./robot_start.sh [OPTIONS]
@@ -160,7 +160,7 @@ if [[ -z "$WORKSPACE" ]]; then
   WORKSPACE="$(_detect_workspace)"
 fi
 
-banner "Rock64 Robot — one-shot startup  (role=$ROLE)"
+banner "Rock64 Robot - one-shot startup  (role=$ROLE)"
 info "Workspace : $WORKSPACE"
 info "Namespace : $ROBOT_NAMESPACE"
 info "Camera    : $CAMERA_IP:$CAMERA_PORT"
@@ -169,7 +169,7 @@ info "Camera    : $CAMERA_IP:$CAMERA_PORT"
 echo ""
 
 # ---------------------------------------------------------------------------
-# STEP 1 — Sanity-check the environment
+# STEP 1 - Sanity-check the environment
 # ---------------------------------------------------------------------------
 CURRENT_STEP="[1/7] checking prerequisites"
 info "[1/7] Checking prerequisites"
@@ -192,7 +192,7 @@ if grep -En '^(source|\.)[^#]*(noetic|melodic|catkin_ws|ROS_DISTRO)' \
 fi
 
 # ---------------------------------------------------------------------------
-# STEP 2 — Scrub the ROS environment
+# STEP 2 - Scrub the ROS environment
 # ---------------------------------------------------------------------------
 CURRENT_STEP="[2/7] scrubbing ROS environment"
 info "[2/7] Scrubbing stale ROS environment variables"
@@ -208,7 +208,7 @@ PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH
 
 # ---------------------------------------------------------------------------
-# STEP 3 — Source base ROS 2 Foxy
+# STEP 3 - Source base ROS 2 Foxy
 # ---------------------------------------------------------------------------
 CURRENT_STEP="[3/7] sourcing ROS 2 Foxy"
 info "[3/7] Sourcing /opt/ros/foxy/setup.bash"
@@ -218,15 +218,15 @@ source /opt/ros/foxy/setup.bash
 set -u
 
 [[ "${ROS_DISTRO:-}" == "foxy" ]] || \
-  fail "ROS_DISTRO is '${ROS_DISTRO:-<unset>}' after sourcing Foxy — start a fresh shell."
+  fail "ROS_DISTRO is '${ROS_DISTRO:-<unset>}' after sourcing Foxy - start a fresh shell."
 
-require_cmd ros2 "ROS 2 Foxy may be misinstalled — reinstall ros-foxy-ros-base."
+require_cmd ros2 "ROS 2 Foxy may be misinstalled - reinstall ros-foxy-ros-base."
 
 python3 -c 'import ament_package' >/dev/null 2>&1 || \
   fail "ament_package not importable. Run: sudo apt install ros-foxy-ament-python python3-ament-package"
 
 # ---------------------------------------------------------------------------
-# STEP 4 — Build (unless skipped)
+# STEP 4 - Build (unless skipped)
 # ---------------------------------------------------------------------------
 cd "$WORKSPACE"
 
@@ -234,7 +234,7 @@ CURRENT_STEP="[4/7] building workspace (colcon)"
 if [[ "$SKIP_BUILD" == "1" ]]; then
   info "[4/7] Skipping build (--skip-build)"
 else
-  info "[4/7] Building workspace (this may take a minute…)"
+  info "[4/7] Building workspace (this may take a minute...)"
 
   # Remove stale artifacts so prefix files regenerate cleanly
   rm -rf "$WORKSPACE/build" "$WORKSPACE/install" "$WORKSPACE/log"
@@ -256,7 +256,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# STEP 5 — Source workspace overlay
+# STEP 5 - Source workspace overlay
 # ---------------------------------------------------------------------------
 CURRENT_STEP="[5/7] sourcing workspace overlay"
 info "[5/7] Sourcing workspace overlay"
@@ -277,7 +277,7 @@ if [[ ":${AMENT_PREFIX_PATH:-}:" != *":$WORKSPACE/install:"* ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# STEP 6 — Verify package discovery
+# STEP 6 - Verify package discovery
 # ---------------------------------------------------------------------------
 CURRENT_STEP="[6/7] verifying package discovery"
 info "[6/7] Verifying package discovery"
@@ -288,13 +288,13 @@ _show_pkg_diag() {
   warn "  Diagnostic for $pkg:"
   if [[ -f "$dsv" ]]; then
     if grep -q 'ament_prefix_path' "$dsv"; then
-      warn "    package.dsv OK — hook present"
+      warn "    package.dsv OK - hook present"
     else
       warn "    package.dsv MISSING ament_prefix_path hook"
-      warn "    → add <export><build_type>ament_python</build_type></export> to $pkg/package.xml"
+      warn "    -> add <export><build_type>ament_python</build_type></export> to $pkg/package.xml"
     fi
   else
-    warn "    package.dsv not found at $dsv — rebuild the workspace"
+    warn "    package.dsv not found at $dsv - rebuild the workspace"
   fi
 }
 
@@ -306,10 +306,10 @@ for pkg in robot_bringup robot_control robot_description; do
     fail "$pkg is not discoverable after sourcing the workspace."
   fi
 done
-info "robot_bringup, robot_control, robot_description — all visible. ✓"
+info "robot_bringup, robot_control, robot_description - all visible. [OK]"
 
 # ---------------------------------------------------------------------------
-# STEP 7 — Run Python preflight (optional)
+# STEP 7 - Run Python preflight (optional)
 # ---------------------------------------------------------------------------
 CURRENT_STEP="[7/7] running preflight checks"
 export ROS_DOMAIN_ID="$DOMAIN_ID"
@@ -321,7 +321,7 @@ if [[ -f "$_dds_xml" ]]; then
   export FASTRTPS_DEFAULT_PROFILES_FILE="$_dds_xml"
   info "Discovery: unicast peers via $FASTRTPS_DEFAULT_PROFILES_FILE"
 else
-  warn "fastdds_unicast.xml not found — using default multicast discovery."
+  warn "fastdds_unicast.xml not found - using default multicast discovery."
   warn "If the PC cannot see the robot's topics, create/install fastdds_unicast.xml."
 fi
 
@@ -352,12 +352,12 @@ elif [[ -f "$WORKSPACE/host_control/bringup_preflight.py" ]]; then
   set -e
   if [[ "$PREFLIGHT_RC" -ne 0 ]]; then
     echo ""
-    warn "Preflight reported problems (exit $PREFLIGHT_RC) — see [FAIL] lines above."
+    warn "Preflight reported problems (exit $PREFLIGHT_RC) - see [FAIL] lines above."
     warn "Fix the hardware/network issues, or re-run with --skip-preflight to launch anyway."
     fail "Aborting before launch due to preflight failure."
   fi
 else
-  info "[7/7] bringup_preflight.py not found — skipping preflight"
+  info "[7/7] bringup_preflight.py not found - skipping preflight"
 fi
 
 # ---------------------------------------------------------------------------
@@ -404,7 +404,7 @@ CAMERA_URL="http://${CAMERA_IP}:${CAMERA_PORT}/stream"
 [[ "$CAMERA_PORT" == "80" ]] && CAMERA_URL="http://${CAMERA_IP}/stream"
 
 CURRENT_STEP="launching ros2 ($ROLE)"
-banner "All checks passed — launching ($ROLE)"
+banner "All checks passed - launching ($ROLE)"
 
 if [[ "$ROLE" == "rock64" ]]; then
   info "Launch: rock64_bringup"
@@ -429,7 +429,7 @@ else
   if [[ "$TELEOP_MODE" == "keyboard_terminal" ]]; then
     # Headless terminal teleop: needs no display, so run the node directly
     # (via `ros2 run`) to give it the real terminal's stdin for keystrokes.
-    info "  headless terminal teleop — drive from THIS terminal (no window)"
+    info "  headless terminal teleop - drive from THIS terminal (no window)"
     exec ros2 run robot_control keyboard_terminal_teleop \
       --cmd-vel-topic cmd_vel \
       --camera-servo-topic camera_servo \

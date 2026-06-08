@@ -99,15 +99,15 @@ void setMotor(int motorId, char dir, int speed) {
 
   bool isMoving = false;
 
-  // ELEGOO single-pin control: HIGH = forward, LOW = backward
+  // ELEGOO single-pin control: LOW = forward, HIGH = backward (directions flipped for correct movement)
   if (dir == 'F') {
     if (speed > 0 && speed < MIN_MOVE_PWM) speed = MIN_MOVE_PWM;
-    digitalWrite(dirPin, HIGH);   // Forward
+    digitalWrite(dirPin, LOW);    // Forward (flipped for correct movement)
     analogWrite(speedPin, speed);
     isMoving = true;
   } else if (dir == 'B') {
     if (speed > 0 && speed < MIN_MOVE_PWM) speed = MIN_MOVE_PWM;
-    digitalWrite(dirPin, LOW);    // Backward
+    digitalWrite(dirPin, HIGH);   // Backward (flipped for correct movement)
     analogWrite(speedPin, speed);
     isMoving = true;
   } else { // Stop

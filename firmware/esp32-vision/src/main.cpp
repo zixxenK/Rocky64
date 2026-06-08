@@ -180,6 +180,13 @@ class MjpegStreamResponse : public AsyncAbstractResponse {
       _state = 0;
     }
 
+    ~MjpegStreamResponse() {
+      if (_fb) {
+        esp_camera_fb_return(_fb);
+        _fb = nullptr;
+      }
+    }
+
     bool _sourceValid() const override { return true; }
 
     size_t _fillBuffer(uint8_t* buf, size_t maxLen) override {

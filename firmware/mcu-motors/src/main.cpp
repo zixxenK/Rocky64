@@ -18,16 +18,18 @@ const size_t SERIAL_BUF_SIZE = 32;
 
 // Geared DC motors need a minimum duty cycle to overcome static friction.
 // Below this the coils buzz/hum without turning. Tune 70-95 to your motors.
-const int MIN_MOVE_PWM = 80;
+const int MIN_MOVE_PWM = 150;
 
-const uint8_t LEFT_SPEED_PIN = 5; 
-const uint8_t LEFT_DIR_A = 7;     
-const uint8_t LEFT_DIR_B = 8;     
-const uint8_t RIGHT_SPEED_PIN = 6;
-const uint8_t RIGHT_DIR_A = 9;    
-const uint8_t RIGHT_DIR_B = 11;   
-
-const uint8_t MY_ROBOT_SERVO_PIN = 3; 
+// ELEGOO Smart Robot Car V4.0 pin assignments (from DeviceDriverSet_xxx0.h)
+// Motor A (Right): PWMA=5, AIN_1=7
+// Motor B (Left):  PWMB=6, BIN_1=8
+// STBY=3
+const uint8_t RIGHT_SPEED_PIN = 5;  // PWMA (Motor A)
+const uint8_t RIGHT_DIR_PIN = 7;    // AIN_1 (Motor A direction)
+const uint8_t LEFT_SPEED_PIN = 6;   // PWMB (Motor B)
+const uint8_t LEFT_DIR_PIN = 8;     // BIN_1 (Motor B direction)
+const uint8_t STBY_PIN = 3;         // STBY pin (ELEGOO uses pin 3)
+const uint8_t MY_ROBOT_SERVO_PIN = 10; // Servo pin (avoid conflict with STBY on pin 3)
 const int CAMERA_SERVO_CENTER = 90;
 
 Servo cameraServo;
@@ -45,13 +47,13 @@ void setup() {
   Serial.begin(115200);
   wdt_enable(WDTO_500MS);
 
+  // ELEGOO motor driver pin configuration
   pinMode(LEFT_SPEED_PIN, OUTPUT);
-  pinMode(LEFT_DIR_A, OUTPUT);
-  pinMode(LEFT_DIR_B, OUTPUT);
-  
+  pinMode(LEFT_DIR_PIN, OUTPUT);
   pinMode(RIGHT_SPEED_PIN, OUTPUT);
-  pinMode(RIGHT_DIR_A, OUTPUT);
-  pinMode(RIGHT_DIR_B, OUTPUT);
+  pinMode(RIGHT_DIR_PIN, OUTPUT);
+  pinMode(STBY_PIN, OUTPUT);
+  digitalWrite(STBY_PIN, HIGH); // Force motor driver awake
 
   stopMotors();
 
@@ -70,12 +72,11 @@ void loop() {
 
 // --- FUNCTION DEFINITIONS ---
 void stopMotors() {
-  digitalWrite(LEFT_DIR_A, LOW);
-  digitalWrite(LEFT_DIR_B, LOW);
+  // ELEGOO single-pin control: direction pin LOW = stop/brake
+  digitalWrite(LEFT_DIR_PIN, LOW);
   analogWrite(LEFT_SPEED_PIN, 0);
 
-  digitalWrite(RIGHT_DIR_A, LOW);
-  digitalWrite(RIGHT_DIR_B, LOW);
+  digitalWrite(RIGHT_DIR_PIN, LOW);
   analogWrite(RIGHT_SPEED_PIN, 0);
 
   // Keep state synced with hardware
@@ -84,38 +85,33 @@ void stopMotors() {
 }
 
 void setMotor(int motorId, char dir, int speed) {
-  uint8_t speedPin, dirA, dirB;
-  
-  if (motorId == 1) {
+  uint8_t speedPin, dirPin;
+
+  if (motorId == 1) { // Motor 1 = Right (Motor A)
     speedPin = RIGHT_SPEED_PIN;
-    dirA = RIGHT_DIR_A;
-    dirB = RIGHT_DIR_B;
-  } else if (motorId == 2) {
+    dirPin = RIGHT_DIR_PIN;
+  } else if (motorId == 2) { // Motor 2 = Left (Motor B)
     speedPin = LEFT_SPEED_PIN;
-    dirA = LEFT_DIR_A;
-    dirB = LEFT_DIR_B;
+    dirPin = LEFT_DIR_PIN;
   } else {
     return;
   }
 
   bool isMoving = false;
 
-  // --- REVERSED LOGIC FOR 180 DEGREE CHASSIS ROTATION ---
-  if (dir == 'F') { 
+  // ELEGOO single-pin control: HIGH = forward, LOW = backward
+  if (dir == 'F') {
     if (speed > 0 && speed < MIN_MOVE_PWM) speed = MIN_MOVE_PWM;
-    digitalWrite(dirA, LOW);   
-    digitalWrite(dirB, HIGH);  
+    digitalWrite(dirPin, HIGH);   // Forward
     analogWrite(speedPin, speed);
     isMoving = true;
-  } else if (dir == 'B') { 
+  } else if (dir == 'B') {
     if (speed > 0 && speed < MIN_MOVE_PWM) speed = MIN_MOVE_PWM;
-    digitalWrite(dirA, HIGH);  
-    digitalWrite(dirB, LOW);   
+    digitalWrite(dirPin, LOW);    // Backward
     analogWrite(speedPin, speed);
     isMoving = true;
-  } else { 
-    digitalWrite(dirA, LOW);
-    digitalWrite(dirB, LOW);
+  } else { // Stop
+    digitalWrite(dirPin, LOW);
     analogWrite(speedPin, 0);
     isMoving = false;
   }
@@ -128,7 +124,7 @@ void setMotor(int motorId, char dir, int speed) {
 void readSerialInput() {
   while (Serial.available() > 0) {
     char incomingChar = Serial.read();
-    
+
     if (incomingChar == '<') {
       bufferInProgress = true;
       bufferIndex = 0;

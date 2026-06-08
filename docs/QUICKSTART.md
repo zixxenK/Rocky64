@@ -161,24 +161,28 @@ ROS 2 Foxy uses FastDDS with multicast discovery by default.  Many WiFi
 routers drop multicast packets, preventing the two machines from finding
 each other.
 
-The workspace ships with `fastdds_unicast.xml` which configures unicast
-peer discovery. `robot_start.sh` exports it automatically:
+`robot_start.sh` now **auto-generates** a unicast peer profile at launch — no
+manual XML editing. It writes `~/.ros/fastdds_unicast.generated.xml` containing
+loopback, this machine's LAN IP, and the other side, then exports
+`FASTRTPS_DEFAULT_PROFILES_FILE` to it.
 
-```
-export FASTRTPS_DEFAULT_PROFILES_FILE=.../config/fastdds_unicast.xml
-```
+- **PC side** already lists the robot (you pass `--robot-host <ip>`), which is
+  enough for bidirectional discovery:
 
-**You must edit the file** to list both machines' IPs:
+  ```bash
+  ./robot_start.sh --role pc --robot-host 192.168.1.159 --teleop-mode keyboard_terminal
+  ```
 
-```xml
-<!-- Rock64 -->
-<address>192.168.1.159</address>
-<!-- Operator PC -->
-<address>192.168.1.81</address>
-```
+- **Rock64 side** can optionally add the PC for symmetry, plus any extra peers:
 
-Copy the same file to the PC and export the env var there too before
-running the PC-side launch.
+  ```bash
+  ./robot_start.sh --pc-host 192.168.1.81            # add the operator PC
+  ./robot_start.sh --peer 192.168.1.50 --peer 192.168.1.51   # extra machines
+  ```
+
+Hostnames are resolved to IPs automatically (e.g. `--robot-host rock64.local`).
+The static `fastdds_unicast.xml` shipped in the package is kept only as a
+fallback if generation fails.
 
 ## Teleop on WSL / no display
 

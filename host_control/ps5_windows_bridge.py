@@ -82,12 +82,13 @@ def list_joysticks():
     pygame.quit()
 
 
-def run_bridge(host: str, serial_port: str, baud: int, ssh_key: str,
-               joystick_index: int, lefty_axis: int, rightx_axis: int,
-               dry_run: bool):
-    import pygame
+def open_ssh_pipe(host: str, serial_port: str, baud: int, ssh_key: str,
+                  dry_run: bool):
+    """Open a persistent SSH pipe to the Rock64's serial port.
 
-    # ---- Open SSH pipe to Rock64 serial port --------------------------------
+    Returns the ``subprocess.Popen`` whose ``stdin`` accepts raw motor
+    packets, or ``None`` in dry-run mode. Exits the process on failure.
+    """
     ssh_cmd = [
         'ssh',
         '-i', ssh_key,
@@ -100,27 +101,37 @@ def run_bridge(host: str, serial_port: str, baud: int, ssh_key: str,
     if dry_run:
         print("[DRY-RUN] Would open SSH pipe:")
         print(" ", " ".join(ssh_cmd))
-        ssh_proc = None
-    else:
-        print(f"[bridge] Connecting to {host} → {serial_port} at {baud} baud...")
-        try:
-            ssh_proc = subprocess.Popen(
-                ssh_cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
-        except FileNotFoundError:
-            print("ERROR: 'ssh' not found. Install OpenSSH or Git for Windows (which bundles ssh).")
-            sys.exit(1)
+        return None
 
-        # Give SSH a moment to connect
-        time.sleep(1.5)
-        if ssh_proc.poll() is not None:
-            err = ssh_proc.stderr.read().decode()
-            print(f"ERROR: SSH connection failed:\n{err}")
-            sys.exit(1)
-        print("[bridge] SSH connected.")
+    print(f"[bridge] Connecting to {host} → {serial_port} at {baud} baud...")
+    try:
+        ssh_proc = subprocess.Popen(
+            ssh_cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        print("ERROR: 'ssh' not found. Install OpenSSH or Git for Windows (which bundles ssh).")
+        sys.exit(1)
+
+    # Give SSH a moment to connect
+    time.sleep(1.5)
+    if ssh_proc.poll() is not None:
+        err = ssh_proc.stderr.read().decode()
+        print(f"ERROR: SSH connection failed:\n{err}")
+        sys.exit(1)
+    print("[bridge] SSH connected.")
+    return ssh_proc
+
+
+def run_bridge(host: str, serial_port: str, baud: int, ssh_key: str,
+               joystick_index: int, lefty_axis: int, rightx_axis: int,
+               dry_run: bool):
+    import pygame
+
+    # ---- Open SSH pipe to Rock64 serial port --------------------------------
+    ssh_proc = open_ssh_pipe(host, serial_port, baud, ssh_key, dry_run)
 
     # ---- Init pygame joystick -----------------------------------------------
     pygame.init()

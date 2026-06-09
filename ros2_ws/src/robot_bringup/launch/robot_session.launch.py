@@ -53,7 +53,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('robot_namespace', default_value='rock64_1'),
-        DeclareLaunchArgument('serial_port', default_value='/dev/ttyUSB0'),
+        DeclareLaunchArgument('serial_port', default_value='/dev/ttyACM0'),
         DeclareLaunchArgument('baud_rate', default_value='115200'),
         DeclareLaunchArgument('baudrate', default_value=''),
         DeclareLaunchArgument(

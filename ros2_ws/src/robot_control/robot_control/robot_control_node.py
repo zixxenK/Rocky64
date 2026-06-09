@@ -307,8 +307,8 @@ class SerialRobotController(Node):
         self.send_drive_commands(left_speed, right_speed)
 
     def send_drive_commands(self, left_speed: int, right_speed: int) -> None:
-        self.send_motor_command(1, left_speed)
-        self.send_motor_command(2, right_speed)
+        self.send_motor_command(1, right_speed)  # Motor 1 = Right
+        self.send_motor_command(2, left_speed)   # Motor 2 = Left
 
     def send_motor_command(self, motor_id: int, speed: int) -> None:
         if self._serial is None or not self._serial.is_open:

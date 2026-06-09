@@ -254,7 +254,7 @@ class CameraStreamMonitor:
 class SerialRobotController(Node):
     def __init__(
         self,
-        port: str = '/dev/ttyACM0',
+        port: str = '/dev/ttyUSB0',
         baudrate: int = 115200,
         timeout: float = 0.1,
         camera_ip: str = '192.168.4.1',

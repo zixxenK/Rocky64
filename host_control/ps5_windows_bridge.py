@@ -6,11 +6,11 @@ Reads the PS5 controller via pygame (no WSL/evdev required), computes
 differential drive motor speeds, and streams serial motor packets to the
 Rock64 over a persistent SSH connection:
 
-  ssh rock64@<ROCK64_IP> "stty -F /dev/ttyACM0 115200 raw; cat > /dev/ttyACM0"
+  ssh rock64@<ROCK64_IP> "stty -F /dev/ttyUSB0 115200 raw; cat > /dev/ttyUSB0"
 
 Usage:
   python host_control/ps5_windows_bridge.py
-  python host_control/ps5_windows_bridge.py --host 192.168.1.159 --port /dev/ttyACM0
+  python host_control/ps5_windows_bridge.py --host 192.168.1.159 --port /dev/ttyUSB0
   python host_control/ps5_windows_bridge.py --list-joysticks
 
 Requirements (install in Windows Python, not WSL):
@@ -224,7 +224,7 @@ def main():
         description="Windows PS5 DualSense -> Rock64 motor bridge (no ROS2, no WSL)"
     )
     parser.add_argument('--host', default='192.168.1.159', help='Rock64 IP address')
-    parser.add_argument('--port', default='/dev/ttyACM0', help='Serial port on Rock64')
+    parser.add_argument('--port', default='/dev/ttyUSB0', help='Serial port on Rock64')
     parser.add_argument('--baud', type=int, default=115200)
     parser.add_argument('--ssh-key', default=r'C:\Users\ZIXXE\.ssh\rock64_sync',
                         help='Path to SSH private key for rock64 user')

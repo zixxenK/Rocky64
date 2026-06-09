@@ -1,6 +1,6 @@
 arduino_serial_bridge:
   ros__parameters:
-    serial_port: /dev/ttyACM0
+    serial_port: /dev/ttyUSB0
     baud_rate: 115200
     timeout: 0.1
     retry_delay: 5.0

@@ -101,7 +101,7 @@ class ArduinoSerialBridge(Node):
     # ------------------------------------------------------------------
 
     def _declare_parameters(self) -> None:
-        self.declare_parameter('serial_port', '/dev/ttyACM0')
+        self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('baud_rate', 115200)
         self.declare_parameter('timeout', 0.1)
         self.declare_parameter('retry_delay', 5.0)

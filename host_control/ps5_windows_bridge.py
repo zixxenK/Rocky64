@@ -89,13 +89,43 @@ def open_ssh_pipe(host: str, serial_port: str, baud: int, ssh_key: str,
     Returns the ``subprocess.Popen`` whose ``stdin`` accepts raw motor
     packets, or ``None`` in dry-run mode. Exits the process on failure.
     """
+    # First, check if the serial port exists
+    check_cmd = [
+        'ssh',
+        '-i', ssh_key,
+        '-o', 'StrictHostKeyChecking=no',
+        f'rock64@{host}',
+        f'test -c {serial_port} && echo "PORT_EXISTS" || echo "PORT_MISSING"',
+    ]
+
+    print(f"[bridge] Checking if {serial_port} exists on {host}...")
+    try:
+        result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
+        if "PORT_MISSING" in result.stdout:
+            print(f"ERROR: Serial port {serial_port} does not exist on {host}")
+            print(f"Available serial ports:")
+            list_cmd = [
+                'ssh',
+                '-i', ssh_key,
+                '-o', 'StrictHostKeyChecking=no',
+                f'rock64@{host}',
+                'ls /dev/tty*',
+            ]
+            list_result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=5)
+            print(list_result.stdout)
+            sys.exit(1)
+        print(f"[bridge] Serial port {serial_port} exists.")
+    except subprocess.TimeoutExpired:
+        print("ERROR: SSH connection timed out while checking serial port.")
+        sys.exit(1)
+
     ssh_cmd = [
         'ssh',
         '-i', ssh_key,
         '-o', 'StrictHostKeyChecking=no',
         '-o', 'ServerAliveInterval=5',
         f'rock64@{host}',
-        f'stty -F {serial_port} {baud} raw; cat > {serial_port}',
+        f'stty -F {serial_port} {baud} raw -echo; cat > {serial_port}',
     ]
 
     if dry_run:
@@ -108,12 +138,21 @@ def open_ssh_pipe(host: str, serial_port: str, baud: int, ssh_key: str,
         ssh_proc = subprocess.Popen(
             ssh_cmd,
             stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
     except FileNotFoundError:
         print("ERROR: 'ssh' not found. Install OpenSSH or Git for Windows (which bundles ssh).")
         sys.exit(1)
+
+    # Start a thread to read stderr and print any errors
+    def read_stderr():
+        for line in iter(ssh_proc.stderr.readline, b''):
+            if line:
+                print(f"[SSH STDERR] {line.decode().strip()}")
+
+    stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+    stderr_thread.start()
 
     # Give SSH a moment to connect
     time.sleep(1.5)
@@ -224,7 +263,7 @@ def main():
         description="Windows PS5 DualSense -> Rock64 motor bridge (no ROS2, no WSL)"
     )
     parser.add_argument('--host', default='192.168.1.159', help='Rock64 IP address')
-    parser.add_argument('--port', default='/dev/ttyUSB0', help='Serial port on Rock64')
+    parser.add_argument('--port', default='/dev/ttyUSB1', help='Serial port on Rock64')
     parser.add_argument('--baud', type=int, default=115200)
     parser.add_argument('--ssh-key', default=r'C:\Users\ZIXXE\.ssh\rock64_sync',
                         help='Path to SSH private key for rock64 user')

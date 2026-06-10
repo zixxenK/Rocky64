@@ -11,6 +11,8 @@ void readSerialInput();
 void parseCommand(char* packet);
 void checkHeartbeat();
 void applyCameraServo(int position);
+int readUltrasonicDistance();
+void updateUltrasonicTelemetry();
 
 // --- CONFIGURATION ---
 const unsigned long HEARTBEAT_TIMEOUT_MS = 200;
@@ -19,6 +21,12 @@ const size_t SERIAL_BUF_SIZE = 32;
 // Geared DC motors need a minimum duty cycle to overcome static friction.
 // Below this the coils buzz/hum without turning. Tune 70-95 to your motors.
 const int MIN_MOVE_PWM = 150;
+
+// Ultrasonic sensor configuration (SmartCar Shield v1.1 pinout)
+const uint8_t ULTRASONIC_TRIG_PIN = 13;
+const uint8_t ULTRASONIC_ECHO_PIN = 12;
+const unsigned long ULTRASONIC_UPDATE_INTERVAL_MS = 100; // Update every 100ms
+const int EMERGENCY_STOP_DISTANCE_CM = 10; // Stop if obstacle within 10cm
 
 // ELEGOO Smart Robot Car V4.0 pin assignments (from DeviceDriverSet_xxx0.h)
 // Motor A (Right): PWMA=5, AIN_1=7
@@ -29,7 +37,12 @@ const uint8_t RIGHT_DIR_PIN = 7;    // AIN_1 (Motor A direction)
 const uint8_t LEFT_SPEED_PIN = 6;   // PWMB (Motor B)
 const uint8_t LEFT_DIR_PIN = 8;     // BIN_1 (Motor B direction)
 const uint8_t STBY_PIN = 3;         // STBY pin (ELEGOO uses pin 3)
-const uint8_t MY_ROBOT_SERVO_PIN = 10; // Servo pin (avoid conflict with STBY on pin 3)
+
+// Servo pin - can be overridden with build flag -DCAMERA_SERVO_PIN=X
+#ifndef CAMERA_SERVO_PIN
+#define CAMERA_SERVO_PIN 10
+#endif
+const uint8_t MY_ROBOT_SERVO_PIN = CAMERA_SERVO_PIN;
 const int CAMERA_SERVO_CENTER = 90;
 
 Servo cameraServo;
@@ -43,6 +56,10 @@ bool motor1Active = false;
 bool motor2Active = false;
 unsigned long lastCommandTime = 0;
 
+// Ultrasonic sensor state
+unsigned long lastUltrasonicUpdate = 0;
+int currentDistanceCm = 0;
+
 void setup() {
   Serial.begin(115200);
   wdt_enable(WDTO_500MS);
@@ -54,6 +71,11 @@ void setup() {
   pinMode(RIGHT_DIR_PIN, OUTPUT);
   pinMode(STBY_PIN, OUTPUT);
   digitalWrite(STBY_PIN, HIGH); // Force motor driver awake
+
+  // Ultrasonic sensor pin configuration
+  pinMode(ULTRASONIC_TRIG_PIN, OUTPUT);
+  pinMode(ULTRASONIC_ECHO_PIN, INPUT);
+  digitalWrite(ULTRASONIC_TRIG_PIN, LOW);
 
   stopMotors();
 
@@ -68,6 +90,7 @@ void loop() {
   wdt_reset();
   checkHeartbeat();
   readSerialInput();
+  updateUltrasonicTelemetry();
 }
 
 // --- FUNCTION DEFINITIONS ---
@@ -99,15 +122,15 @@ void setMotor(int motorId, char dir, int speed) {
 
   bool isMoving = false;
 
-  // ELEGOO single-pin control: LOW = forward, HIGH = backward (directions flipped for correct movement)
+  // ELEGOO single-pin control: LOW = forward, HIGH = backward
   if (dir == 'F') {
     if (speed > 0 && speed < MIN_MOVE_PWM) speed = MIN_MOVE_PWM;
-    digitalWrite(dirPin, LOW);    // Forward (flipped for correct movement)
+    digitalWrite(dirPin, LOW);    // Forward
     analogWrite(speedPin, speed);
     isMoving = true;
   } else if (dir == 'B') {
     if (speed > 0 && speed < MIN_MOVE_PWM) speed = MIN_MOVE_PWM;
-    digitalWrite(dirPin, HIGH);   // Backward (flipped for correct movement)
+    digitalWrite(dirPin, HIGH);   // Backward
     analogWrite(speedPin, speed);
     isMoving = true;
   } else { // Stop
@@ -115,6 +138,19 @@ void setMotor(int motorId, char dir, int speed) {
     analogWrite(speedPin, 0);
     isMoving = false;
   }
+
+  // Debug: output actual pin states
+  Serial.print("<DBG,M");
+  Serial.print(motorId);
+  Serial.print(",pin=");
+  Serial.print(speedPin);
+  Serial.print(",spd=");
+  Serial.print(speed);
+  Serial.print(",dir=");
+  Serial.print(dirPin);
+  Serial.print(",");
+  Serial.print(digitalRead(dirPin) ? "HIGH" : "LOW");
+  Serial.println(">");
 
   // Sync specific motor state
   if (motorId == 1) motor1Active = isMoving;
@@ -162,6 +198,15 @@ void parseCommand(char* packet) {
   if (token == NULL) return;
   int speedVal = constrain(atoi(token), 0, 255);
 
+  // Debug: echo received command
+  Serial.print("<ACK,M");
+  Serial.print(motorId);
+  Serial.print(",");
+  Serial.print(dir);
+  Serial.print(",");
+  Serial.print(speedVal);
+  Serial.println(">");
+
   setMotor(motorId, dir, speedVal);
 }
 
@@ -172,5 +217,54 @@ void applyCameraServo(int position) {
 void checkHeartbeat() {
   if ((motor1Active || motor2Active) && (millis() - lastCommandTime > HEARTBEAT_TIMEOUT_MS)) {
     stopMotors();
+  }
+}
+
+int readUltrasonicDistance() {
+  // Send a 10 microsecond pulse to trigger the sensor
+  digitalWrite(ULTRASONIC_TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(ULTRASONIC_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(ULTRASONIC_TRIG_PIN, LOW);
+
+  // Read the echo pulse duration (timeout at 30ms for ~5m max distance)
+  long duration = pulseIn(ULTRASONIC_ECHO_PIN, HIGH, 30000);
+
+  // Convert to distance in cm (speed of sound = 343 m/s)
+  // Distance = (duration * speed of sound) / 2
+  // Distance in cm = (duration * 0.0343) / 2 = duration * 0.01715
+  int distance = duration * 0.01715;
+
+  // Return 0 if timeout (no echo received)
+  if (distance == 0 || distance > 400) {
+    return 0;
+  }
+
+  return distance;
+}
+
+void updateUltrasonicTelemetry() {
+  unsigned long now = millis();
+
+  // Update ultrasonic reading at fixed interval
+  if (now - lastUltrasonicUpdate >= ULTRASONIC_UPDATE_INTERVAL_MS) {
+    lastUltrasonicUpdate = now;
+    currentDistanceCm = readUltrasonicDistance();
+
+    // Publish distance telemetry
+    Serial.print("<DISTANCE,");
+    Serial.print(currentDistanceCm);
+    Serial.println(">");
+
+    // Emergency stop if obstacle is too close
+    if (currentDistanceCm > 0 && currentDistanceCm < EMERGENCY_STOP_DISTANCE_CM) {
+      if (motor1Active || motor2Active) {
+        stopMotors();
+        Serial.print("<ALERT,OBSTACLE,");
+        Serial.print(currentDistanceCm);
+        Serial.println(">");
+      }
+    }
   }
 }

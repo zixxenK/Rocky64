@@ -135,13 +135,20 @@ class Controller:
     def read(self):
         """Return ``(linear, angular, servo_delta, quit)`` for this tick."""
         self._pygame.event.pump()
-        linear = -apply_deadzone(self.js.get_axis(self.lefty_axis))   # up = forward
-        angular = -apply_deadzone(self.js.get_axis(self.rightx_axis))  # right = turn right
+        raw_linear = self.js.get_axis(self.lefty_axis)
+        raw_angular = self.js.get_axis(self.rightx_axis)
+        linear = -apply_deadzone(raw_linear)   # up = forward
+        angular = -apply_deadzone(raw_angular)  # right = turn right
         servo_delta = 0
         if self._button(self.l1_button):
             servo_delta -= SERVO_STEP
         if self._button(self.r1_button):
             servo_delta += SERVO_STEP
+
+        # Debug: print raw axis values if they're non-zero
+        if abs(raw_linear) > 0.01 or abs(raw_angular) > 0.01:
+            print(f"[DEBUG] Raw axis: L={raw_linear:+.3f}, R={raw_angular:+.3f} -> linear={linear:+.3f}, angular={angular:+.3f}")
+
         return linear, angular, servo_delta, self._button(self.quit_button)
 
     def close(self):
@@ -174,11 +181,15 @@ def run(host, serial_port, baud, ssh_key, source, joystick_index,
     def send(data: bytes):
         if dry_run or ssh_proc is None:
             return
+        # Check if SSH process is still alive
+        if ssh_proc.poll() is not None:
+            print("\nERROR: SSH process died. Is the Rock64 still reachable?")
+            raise BrokenPipeError("SSH process died")
         try:
             ssh_proc.stdin.write(data)
             ssh_proc.stdin.flush()
-        except BrokenPipeError:
-            print("\nERROR: SSH pipe closed. Is the Rock64 still reachable?")
+        except (BrokenPipeError, OSError) as e:
+            print(f"\nERROR: SSH pipe closed: {e}. Is the Rock64 still reachable?")
             raise
 
     def send_drive(left: int, right: int):
@@ -345,7 +356,7 @@ def main():
         )
     )
     parser.add_argument('--host', default='192.168.1.159', help='Rock64 IP / hostname')
-    parser.add_argument('--port', default='/dev/ttyUSB0', help='Serial port on the Rock64')
+    parser.add_argument('--port', default='/dev/ttyUSB1', help='Serial port on the Rock64')
     parser.add_argument('--baud', type=int, default=115200)
     parser.add_argument('--ssh-key', default=r'C:\Users\ZIXXE\.ssh\rock64_sync',
                         help='Path to the SSH private key for the rock64 user')

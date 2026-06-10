@@ -20,7 +20,7 @@ const size_t SERIAL_BUF_SIZE = 32;
 
 // Geared DC motors need a minimum duty cycle to overcome static friction.
 // Below this the coils buzz/hum without turning. Tune 70-95 to your motors.
-const int MIN_MOVE_PWM = 150;
+const int MIN_MOVE_PWM = 100;
 
 // Ultrasonic sensor configuration (SmartCar Shield v1.1 pinout)
 const uint8_t ULTRASONIC_TRIG_PIN = 13;

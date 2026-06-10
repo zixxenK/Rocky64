@@ -263,7 +263,7 @@ def main():
         description="Windows PS5 DualSense -> Rock64 motor bridge (no ROS2, no WSL)"
     )
     parser.add_argument('--host', default='192.168.1.159', help='Rock64 IP address')
-    parser.add_argument('--port', default='/dev/ttyUSB1', help='Serial port on Rock64')
+    parser.add_argument('--port', default='/dev/ttyUSB0', help='Serial port on Rock64')
     parser.add_argument('--baud', type=int, default=115200)
     parser.add_argument('--ssh-key', default=r'C:\Users\ZIXXE\.ssh\rock64_sync',
                         help='Path to SSH private key for rock64 user')

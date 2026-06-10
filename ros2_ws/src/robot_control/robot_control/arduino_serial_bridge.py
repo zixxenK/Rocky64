@@ -30,7 +30,7 @@ from serial import SerialException
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Int16
+from std_msgs.msg import Int16, String
 
 from robot_control.control_mapping import twist_to_wheel_speeds, motor_packet
 
@@ -89,9 +89,13 @@ class ArduinoSerialBridge(Node):
         self._watchdog_fired: bool = False
         self._last_cmd_time: float = time.monotonic()
 
+        # Reader thread state
+        self._reader_thread: Optional[threading.Thread] = None
+
         # Bring up in dependency order
         self._connect()
         self._start_writer_thread()
+        self._start_reader_thread()
         self._create_subscriptions()
         self._start_reconnect_timer()
         self._start_watchdog_timer()
@@ -114,6 +118,7 @@ class ArduinoSerialBridge(Node):
         self.declare_parameter('cmd_vel_topic', 'cmd_vel')
         self.declare_parameter('camera_servo_topic', 'camera_servo')
         self.declare_parameter('telemetry_topic', 'robot_telemetry')
+        self.declare_parameter('ultrasonic_distance_topic', 'ultrasonic_distance')
 
     # ------------------------------------------------------------------
     # Port discovery
@@ -253,14 +258,19 @@ class ArduinoSerialBridge(Node):
     def _create_subscriptions(self) -> None:
         cmd_vel_topic: str = self.get_parameter('cmd_vel_topic').value
         servo_topic: str = self.get_parameter('camera_servo_topic').value
+        ultrasonic_topic: str = self.get_parameter('ultrasonic_distance_topic').value
 
         self.create_subscription(Twist, cmd_vel_topic, self.cmd_vel_callback, 10)
         self.create_subscription(Int16, servo_topic, self.servo_callback, 10)
+
+        # Create publisher for ultrasonic distance data
+        self.ultrasonic_pub = self.create_publisher(Int16, ultrasonic_topic, 10)
 
         self.get_logger().info(
             f'Subscribed:  {cmd_vel_topic},  {servo_topic}  '
             f'(namespace: {self.get_namespace()})'
         )
+        self.get_logger().info(f'Publishing ultrasonic distance to: {ultrasonic_topic}')
 
     def cmd_vel_callback(self, msg: Twist) -> None:
         self._last_cmd_time = time.monotonic()
@@ -274,6 +284,65 @@ class ArduinoSerialBridge(Node):
     def servo_callback(self, msg: Int16) -> None:
         position = max(0, min(180, msg.data))
         self._send_to_arduino(f'<SERVO,{position}>\n')
+
+    # ------------------------------------------------------------------
+    # Reader thread
+    # ------------------------------------------------------------------
+
+    def _start_reader_thread(self) -> None:
+        self._reader_thread = threading.Thread(
+            target=self._read_worker, daemon=True, name='arduino_reader'
+        )
+        self._reader_thread.start()
+
+    def _read_worker(self) -> None:
+        """Background thread: read serial data from Arduino and parse telemetry."""
+        while not self._shutdown:
+            if not self._connected or self._ser is None:
+                time.sleep(0.1)
+                continue
+
+            try:
+                if self._ser.in_waiting > 0:
+                    line = self._ser.readline().decode('utf-8', errors='replace').strip()
+                    if line:
+                        self._parse_telemetry(line)
+            except SerialException:
+                self._handle_disconnect()
+                break
+            except Exception as exc:
+                self.get_logger().error(f'Read error: {exc}')
+                time.sleep(0.1)
+
+    def _parse_telemetry(self, line: str) -> None:
+        """Parse telemetry packets from Arduino."""
+        if line.startswith('<DISTANCE,'):
+            try:
+                # Parse <DISTANCE,cm>
+                parts = line[len('<DISTANCE,'):-1].split(',')
+                if len(parts) == 1:
+                    distance = int(parts[0])
+                    msg = Int16(data=distance)
+                    self.ultrasonic_pub.publish(msg)
+                    self.get_logger().debug(f'Ultrasonic distance: {distance} cm')
+            except (ValueError, IndexError) as exc:
+                self.get_logger().warn(f'Failed to parse DISTANCE packet: {line} - {exc}')
+        elif line.startswith('<ALERT,OBSTACLE,'):
+            try:
+                # Parse <ALERT,OBSTACLE,cm>
+                parts = line[len('<ALERT,OBSTACLE,'):-1].split(',')
+                if len(parts) == 1:
+                    distance = int(parts[0])
+                    self.get_logger().warn(f'OBSTACLE ALERT: {distance} cm - Emergency stop triggered')
+            except (ValueError, IndexError) as exc:
+                self.get_logger().warn(f'Failed to parse ALERT packet: {line} - {exc}')
+        elif line.startswith('TELEMETRY,'):
+            # Forward existing telemetry
+            msg = String()
+            msg.data = line
+            # Note: telemetry_publisher is not currently defined in this node
+            # This would need to be added if you want to forward TELEMETRY packets
+            self.get_logger().debug(f'Telemetry: {line}')
 
     # ------------------------------------------------------------------
     # Reconnect timer

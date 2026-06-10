@@ -42,6 +42,9 @@ def generate_launch_description():
             'telemetry_topic', default_value='robot_telemetry'
         ),
         DeclareLaunchArgument(
+            'ultrasonic_distance_topic', default_value='ultrasonic_distance'
+        ),
+        DeclareLaunchArgument(
             'params_file',
             default_value=default_params_file,
             description=(
@@ -61,6 +64,7 @@ def generate_launch_description():
                 {'cmd_vel_topic': cmd_vel_topic},
                 {'camera_servo_topic': camera_servo_topic},
                 {'telemetry_topic': telemetry_topic},
+                {'ultrasonic_distance_topic': ultrasonic_distance_topic},
             ],
         ),
         Node(

@@ -356,7 +356,7 @@ def main():
         )
     )
     parser.add_argument('--host', default='192.168.1.159', help='Rock64 IP / hostname')
-    parser.add_argument('--port', default='/dev/ttyUSB1', help='Serial port on the Rock64')
+    parser.add_argument('--port', default='/dev/ttyUSB0', help='Serial port on the Rock64')
     parser.add_argument('--baud', type=int, default=115200)
     parser.add_argument('--ssh-key', default=r'C:\Users\ZIXXE\.ssh\rock64_sync',
                         help='Path to the SSH private key for the rock64 user')

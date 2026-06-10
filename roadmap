@@ -1,0 +1,666 @@
+SINCE THIS LAST CHANGE WE NO longer can just turn on bot and control from pc what changed? plan to be using my pc as the computing power for rock 64 agent mode toggle with using the ps5 share button to let the robot be cvontrolled via an agent including extensive saftey planning to not smash up the bot, also plan fixing the servo and ultrasonic sensor as i do not beleive we have accounted for that currently the servo for ultrasonicc sensor is plugged into the shields servo slot 1 or p10. the ultrasonic sensor is plugged in where it came from the manufacturer
+
+Thought for 2s
+I'll analyze the current system to create a comprehensive plan for PC-based agent mode with PS5 toggle and safety features, plus servo/ultrasonic integration.
+
+Readrobot_control_node.py and 5 other files
+Thought for 4s
+Created Todo List7 tasks
+Thought for 4s
+Searched*.cpp and 2 other queries
+Thought for 3s
+1 / 7 tasks done
+Thought for 3s
+PC-Based Agent Mode Plan with PS5 Toggle & Safety Systems
+Current State Analysis
+Existing Infrastructure:
+
+Arduino firmware: Motor control via serial, heartbeat timeout (200ms), servo on pin 10 (P10) - but NO ultrasonic sensor code
+PS5 Windows bridge: Sends motor commands via SSH to Rock64, reads joystick axes
+Rock64 ROS2 node: Camera streaming, motor command bridging, telemetry publishing
+ESP32-CAM: MJPEG streaming only
+Critical Gaps:
+
+No ultrasonic sensor (HC-SR04) integration in Arduino firmware
+No agent mode toggle mechanism
+No PC-based agent integration
+No collision detection/avoidance
+No speed limiting based on sensor data
+Servo exists but not used for ultrasonic panning
+2 / 7 tasks done
+Thought for 3s
+Implementation Plan
+1. Ultrasonic Sensor Integration (HC-SR04)
+Arduino Firmware Changes (main.cpp):
+
+Add ultrasonic sensor pins (typically: TRIG pin, ECHO pin - need to check shield documentation)
+Implement distance measurement function using pulse timing
+Add periodic distance reading (every 50-100ms)
+Publish distance telemetry via serial: <DISTANCE,cm>
+Add distance-based emergency stop threshold (e.g., 15cm)
+Pin Assignment:
+
+Need to identify which pins the shield uses for HC-SR04 (typically 4-pin header)
+Common Arduino shield pinout: TRIG on digital pin, ECHO on digital pin
+2. Servo Control for Ultrasonic Panning
+Current State: Servo already initialized on pin 10 (P10) in Arduino firmware
+
+Enhancements:
+
+Add automatic panning mode for obstacle scanning
+Implement servo position commands: <SERVO,angle> (already supported)
+Add scanning pattern: center → left → right → center
+Sync servo position with distance readings for obstacle mapping
+3. PC-Based Agent Mode Architecture
+New Component: host_control/agent_controller.py
+
+Architecture:
+
+
+
+PC (Windows)
+├── PS5 Controller Input (pygame)
+├── Agent Mode Toggle (Share button)
+├── Agent Logic (computer vision + decision making)
+├── Safety Monitor (collision detection)
+└── Motor Command Output → SSH → Rock64 → Arduino
+Mode States:
+
+MANUAL MODE: PS5 joystick directly controls motors (current behavior)
+AGENT MODE: PC agent processes camera frames, makes decisions, sends motor commands
+EMERGENCY STOP: Immediate halt on any safety violation
+PS5 Share Button Detection:
+
+Add button polling in ps5_windows_bridge.py
+Share button typically button index 8 or 9 (need to verify with --list-joysticks)
+Toggle mode on button press with debouncing
+Send mode change command to agent controller
+4. Comprehensive Safety System
+Multi-Layer Safety Architecture:
+
+Layer 1: Arduino Firmware (Hardware-level safety)
+
+Heartbeat timeout (200ms) - already implemented
+Ultrasonic emergency stop (< 15cm)
+Maximum speed clamping (currently 255, reduce to 180 for safety)
+Watchdog timer (already implemented)
+Layer 2: Rock64 ROS2 Node (Mid-level safety)
+
+Velocity command validation
+Acceleration limiting
+Telemetry monitoring for anomalies
+Emergency stop command forwarding
+Layer 3: PC Agent (High-level safety)
+
+Computer vision collision detection
+Speed scaling based on distance
+Path planning with obstacle avoidance
+Human-in-the-loop override (PS5 buttons)
+Failsafe to manual mode on errors
+Safety Parameters:
+
+Minimum safe distance: 30cm (normal), 15cm (emergency)
+Maximum speed: 180 PWM (reduced from 255)
+Maximum acceleration: 50 PWM per cycle
+Emergency stop distance: < 10cm
+Vision confidence threshold: 0.7
+5. Communication Protocol
+Serial Packet Format (Arduino ↔ Rock64):
+
+
+
+Motor commands: <motor_id,direction,magnitude>
+Servo commands: <SERVO,angle>
+Distance telemetry: <DISTANCE,cm>
+Mode command: <MODE,MANUAL|AGENT|E-STOP>
+ROS2 Topics (Rock64):
+
+/cmd_vel (Twist) - Motor commands
+/robot_telemetry (String) - Arduino telemetry including distance
+/camera_status (String) - Camera stream status
+/agent_mode (String) - Current mode (MANUAL/AGENT/E-STOP)
+/safety_status (String) - Safety system status
+PC Agent Communication:
+
+Camera frames from ESP32-CAM via HTTP
+Telemetry from Rock64 via ROS2 or direct SSH
+Motor commands to Rock64 via modified PS5 bridge or direct serial
+6 / 7 tasks done
+Thought for 1s
+File Changes Summary
+1. Arduino Firmware (main.cpp)
+
+Add ultrasonic sensor pins (TRIG/ECHO)
+Implement readUltrasonicDistance() function
+Add periodic distance measurement in loop()
+Add distance telemetry publishing: <DISTANCE,cm>
+Add distance-based emergency stop
+Reduce MAX_SPEED from 255 to 180
+Add servo scanning mode for obstacle detection
+2. PS5 Windows Bridge (ps5_windows_bridge.py)
+
+Add Share button detection
+Add mode toggle logic (MANUAL/AGENT)
+Add mode state persistence
+Add emergency stop button mapping (e.g., PS button or R3)
+Send mode commands to agent controller
+3. New Agent Controller (host_control/agent_controller.py)
+
+Computer vision integration (OpenCV)
+Obstacle detection from camera frames
+Decision making logic for navigation
+Safety monitoring (collision detection)
+Motor command generation
+Mode state management
+Failsafe to manual mode
+4. Rock64 ROS2 Node (robot_control_node.py)
+
+Add distance telemetry parsing
+Add safety command forwarding
+Add velocity command validation
+Add acceleration limiting
+Add emergency stop handling
+5. New Safety Monitor (ros2_ws/src/robot_control/safety_monitor.py)
+
+Multi-sensor fusion (ultrasonic + vision)
+Speed scaling based on distance
+Emergency stop trigger
+Safety status publishing
+Testing Strategy
+Phase 1: Sensor Integration
+
+Test ultrasonic sensor independently on Arduino
+Verify distance readings accuracy (compare to known distances)
+Test servo panning with manual commands
+Test servo + ultrasonic scanning pattern
+Phase 2: Safety Systems
+
+Test Arduino emergency stop at 15cm threshold
+Test Rock64 velocity command validation
+Test PC agent collision detection with test images
+Test emergency stop button on PS5 controller
+Phase 3: Mode Toggle
+
+Test Share button detection with --list-joysticks
+Test mode toggle between MANUAL and AGENT
+Verify motor command routing based on mode
+Test emergency stop mode override
+Phase 4: Agent Integration
+
+Test agent in simulation (mock camera frames)
+Test agent with real camera stream (stationary robot)
+Test agent with slow movement in safe environment
+Test agent with obstacles in controlled environment
+Phase 5: End-to-End
+
+Full system integration test
+Long-duration stability test
+Edge case testing (low light, reflective surfaces, etc.)
+Performance optimization
+Implementation Order
+Week 1: Arduino ultrasonic sensor + servo scanning
+Week 2: PS5 Share button detection + mode toggle
+Week 3: PC agent controller basic implementation
+Week 4: Safety systems integration
+Week 5: End-to-end testing and refinement
+7 / 7 tasks done
+Thought for 2s
+Plan Summary
+Architecture Overview:
+
+PC runs agent controller with computer vision
+PS5 Share button toggles between MANUAL (joystick) and AGENT (AI) modes
+Arduino gets ultrasonic sensor integration on shield pins
+Servo on P10 pans ultrasonic for obstacle scanning
+Multi-layer safety: Arduino (hardware), Rock64 (mid-level), PC (high-level)
+Key Components:
+
+Arduino firmware: Add HC-SR04 ultrasonic sensor, distance telemetry, emergency stop at 15cm, servo scanning mode
+PS5 bridge: Add Share button detection for mode toggle, emergency stop button mapping
+Agent controller: New PC component for vision-based navigation, obstacle avoidance, decision making
+Safety monitor: Multi-sensor fusion, speed scaling based on distance, emergency stop triggers
+ROS2 node enhancements: Distance telemetry parsing, velocity validation, acceleration limiting
+Safety Parameters:
+
+Minimum safe distance: 30cm (normal), 15cm (emergency)
+Maximum speed: 180 PWM (reduced from 255)
+Emergency stop: < 10cm or safety violation
+Vision confidence threshold: 0.7
+Implementation Order: 5-week phased approach starting with Arduino sensor integration, ending with end-to-end testing.
+
+Next Steps:
+
+Identify ultrasonic sensor pin assignments on your shield (need TRIG/ECHO pin numbers)
+Verify Share button index on your PS5 controller (run python host_control/ps5_windows_bridge.py --list-joysticks)
+Choose agent framework (OpenCV custom, or integrate with existing agent system)
+Ready to proceed with implementation or need clarification on any part?
+
+
+
+Feedback submitted
+
+
+
+i think there should be a custom control centre that can at least modify max min speeds and direction of wheels etc, commands can be sent to the agent there and the agent will learn over time 1. Arduino Firmware (main.cpp)
+
+Add ultrasonic sensor pins (TRIG/ECHO)
+Implement readUltrasonicDistance() function
+Add periodic distance measurement in loop()
+Add distance telemetry publishing: <DISTANCE,cm>
+Add distance-based emergency stop
+Reduce MAX_SPEED from 255 to 180
+Add servo scanning mode for obstacle detection
+2. PS5 Windows Bridge (ps5_windows_bridge.py)
+
+Add Share button detection
+Add mode toggle logic (MANUAL/AGENT)
+Add mode state persistence
+Add emergency stop button mapping (e.g., PS button or R3)
+Send mode commands to agent controller
+3. New Agent Controller (host_control/agent_controller.py)
+
+Computer vision integration (OpenCV)
+Obstacle detection from camera frames
+Decision making logic for navigation
+Safety monitoring (collision detection)
+Motor command generation
+Mode state management
+Failsafe to manual mode
+4. Rock64 ROS2 Node (robot_control_node.py)
+
+Add distance telemetry parsing
+Add safety command forwarding
+Add velocity command validation
+Add acceleration limiting
+Add emergency stop handling
+5. New Safety Monitor (ros2_ws/src/robot_control/safety_monitor.py)
+
+Multi-sensor fusion (ultrasonic + vision)
+Speed scaling based on distance
+Emergency stop trigger
+Safety status publishing
+Testing Strategy
+Phase 1: Sensor Integration
+
+Thought for 2s
+0 / 7 tasks done
+Thought for 1s
+Updated Plan with Custom Control Center
+New Architecture Component: Control Center
+Control Center Features:
+
+Web-based UI (Flask/FastAPI + React or simple HTML/JS)
+Configuration Management: Speed limits, direction mappings, safety thresholds
+Command Interface: Send commands to agent, override modes
+Learning Dashboard: View agent progress, training metrics
+Real-time Telemetry: Live sensor data, motor status, safety alerts
+Parameter Persistence: Save/load configurations, learned parameters
+Control Center Architecture
+
+
+Control Center (PC)
+├── Web Server (Flask/FastAPI)
+│   ├── REST API for configuration
+│   ├── WebSocket for real-time telemetry
+│   └── Static file serving (UI)
+├── Configuration Database (JSON/YAML)
+│   ├── Speed limits (min/max per motor)
+│   ├── Direction mappings (motor inversion)
+│   ├── Safety thresholds (distances, speeds)
+│   └── Learned parameters (agent weights, biases)
+├── Agent Learning Module
+│   ├── Training data collection
+│   ├── Model persistence
+│   └── Performance metrics
+└── Command Dispatcher
+    ├── Send commands to agent controller
+    ├── Override PS5 mode
+    └── Emergency stop trigger
+1 / 7 tasks done
+Thought for 1s
+Agent Learning System
+Learning Architecture:
+
+
+
+Agent Learning Module
+├── Experience Replay Buffer
+│   ├── State (camera frames, ultrasonic distance, servo angle)
+│   ├── Action (motor commands)
+│   ├── Reward (distance to goal, collision avoidance, smoothness)
+│   └── Next State
+├── Model (Simple neural network or rule-based)
+│   ├── Input: Sensor data + goal
+│   ├── Output: Motor commands
+│   └── Parameters: Weights/biases (saved to disk)
+├── Training Loop
+│   ├── Collect episodes (manual or agent mode)
+│   ├── Update model based on rewards
+│   ├── Validate performance
+│   └── Save best model
+└── Metrics Dashboard
+    ├── Success rate
+    ├── Collision rate
+    ├── Average speed
+    └── Learning progress
+Learning Approach Options:
+
+Rule-based with parameter tuning: Simple rules (if distance < X, slow down) with learned thresholds
+Neural Network: Deep Q-Learning or behavioral cloning from manual demonstrations
+Hybrid: Rule-based safety + learned navigation
+Recommended Start: Rule-based with parameter tuning (simpler, safer, faster to implement)
+
+2 / 7 tasks done
+Thought for 1s
+Control Center UI Design
+Web Interface Structure:
+
+
+
+Control Center Dashboard
+├── Configuration Panel
+│   ├── Motor Configuration
+│   │   ├── Motor 1 (Right): Min Speed, Max Speed, Direction Invert
+│   │   └── Motor 2 (Left): Min Speed, Max Speed, Direction Invert
+│   ├── Safety Configuration
+│   │   ├── Emergency Stop Distance (cm)
+│   │   ├── Warning Distance (cm)
+│   │   ├── Max Speed Limit (PWM)
+│   │   └── Acceleration Limit (PWM/cycle)
+│   └── Servo Configuration
+│       ├── Servo Pin (P10)
+│       ├── Scan Range (degrees)
+│       └── Scan Speed
+├── Agent Control Panel
+│   ├── Mode Status (MANUAL/AGENT/E-STOP)
+│   ├── Send Command (text input or preset buttons)
+│   ├── Learning Controls
+│   │   ├── Start/Stop Training
+│   │   ├── Save Model
+│   │   ├── Load Model
+│   │   └── Reset Learning
+│   └── Performance Metrics
+│       ├── Success Rate
+│       ├── Collision Rate
+│       └── Learning Progress
+├── Telemetry Display
+│   ├── Ultrasonic Distance (cm)
+│   ├── Motor Speeds (L/R)
+│   ├── Servo Position (degrees)
+│   ├── Camera Stream (optional)
+│   └── Safety Status
+└── System Controls
+    ├── Emergency Stop Button
+    ├── Save Configuration
+    ├── Load Configuration
+    └── Reset to Defaults
+3 / 7 tasks done
+Thought for 1s
+Command API Design
+REST API Endpoints (Control Center ↔ Agent Controller):
+
+
+
+python
+# Configuration Management
+GET  /api/config                    # Get current configuration
+POST /api/config                    # Update configuration
+POST /api/config/save               # Save configuration to file
+POST /api/config/load               # Load configuration from file
+POST /api/config/reset              # Reset to defaults
+ 
+# Motor Configuration
+POST /api/config/motor/{motor_id}   # Update motor config (min/max speed, direction)
+ 
+# Agent Control
+POST /api/agent/mode                # Set mode (MANUAL/AGENT/E-STOP)
+GET  /api/agent/mode                # Get current mode
+POST /api/agent/command             # Send command to agent
+POST /api/agent/train/start         # Start training
+POST /api/agent/train/stop          # Stop training
+POST /api/agent/model/save          # Save trained model
+POST /api/agent/model/load          # Load trained model
+POST /api/agent/model/reset         # Reset learning
+ 
+# Telemetry
+GET  /api/telemetry                 # Get current telemetry state
+WS   /api/telemetry/stream          # WebSocket for real-time updates
+ 
+# Emergency Controls
+POST /api/emergency/stop            # Immediate emergency stop
+POST /api/emergency/reset           # Reset from emergency stop
+Command Format (Control Center → Agent):
+
+
+
+json
+{
+  "type": "navigation" | "exploration" | "goal_reach",
+  "parameters": {
+    "target": {"x": 0.5, "y": 0.3},
+    "speed": "normal" | "cautious" | "aggressive",
+    "timeout": 30
+  }
+}
+4 / 7 tasks done
+Thought for 1s
+Arduino Firmware with Configurable Parameters
+New Serial Commands for Configuration:
+
+
+
+<<CONFIG,MOTOR1,MIN_SPEED,value>   # Set motor 1 minimum speed
+<<CONFIG,MOTOR1,MAX_SPEED,value>   # Set motor 1 maximum speed
+<<CONFIG,MOTOR1,INVERT,true/false> # Invert motor 1 direction
+<<CONFIG,MOTOR2,MIN_SPEED,value>   # Set motor 2 minimum speed
+<<CONFIG,MOTOR2,MAX_SPEED,value>   # Set motor 2 maximum speed
+<<CONFIG,MOTOR2,INVERT,true/false> # Invert motor 2 direction
+<<CONFIG,SAFETY,STOP_DIST,value>   # Set emergency stop distance (cm)
+<<CONFIG,SAFETY,MAX_SPEED,value>   # Set global max speed limit
+<<CONFIG,SERVO,SCAN_RANGE,value>   # Set servo scan range (degrees)
+<<CONFIG,SAVE>                     # Save config to EEPROM
+<<CONFIG,LOAD>                     # Load config from EEPROM
+<<CONFIG,RESET>                    # Reset to defaults
+Arduino Configuration Structure:
+
+
+
+cpp
+struct MotorConfig {
+  int minSpeed;
+  int maxSpeed;
+  bool invertDirection;
+};
+ 
+struct SafetyConfig {
+  int stopDistance;      // Emergency stop distance (cm)
+  int warningDistance;   // Warning distance (cm)
+  int maxSpeedLimit;     // Global max speed (PWM)
+};
+ 
+struct ServoConfig {
+  int scanRange;         // Scan range in degrees (e.g., 90 = 45° left to 45° right)
+  int scanSpeed;         // Scan speed (ms per degree)
+};
+5 / 7 tasks done
+Thought for 1s
+Control Center Integration with PS5/Agent Modes
+Mode Hierarchy and Priority:
+
+
+
+Priority Levels (highest to lowest):
+1. EMERGENCY STOP (from any source: Control Center, PS5 button, Arduino safety)
+2. Control Center Manual Override (explicit user command)
+3. PS5 Manual Mode (joystick control)
+4. Agent Mode (AI control)
+Integration Architecture:
+
+
+
+┌─────────────────────────────────────────────────────────┐
+│                    Control Center                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
+│  │ Config API   │  │ Agent API    │  │ Emergency    │ │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘ │
+└─────────┼──────────────────┼──────────────────┼─────────┘
+          │                  │                  │
+          ▼                  ▼                  ▼
+┌─────────────────────────────────────────────────────────┐
+│                  Agent Controller                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
+│  │ Mode Manager │  │ Command Queue│  │ Safety Check │ │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘ │
+└─────────┼──────────────────┼──────────────────┼─────────┘
+          │                  │                  │
+          ▼                  ▼                  ▼
+┌─────────────────────────────────────────────────────────┐
+│                    PS5 Bridge                           │
+│  ┌──────────────┐  ┌──────────────┐                    │
+│  │ Joystick     │  │ Share Button │                    │
+│  │ Input        │  │ Mode Toggle  │                    │
+│  └──────┬───────┘  └──────┬───────┘                    │
+└─────────┼──────────────────┼────────────────────────────┘
+          │                  │
+          ▼                  ▼
+┌─────────────────────────────────────────────────────────┐
+│                   Rock64 ROS2 Node                       │
+│  ┌──────────────┐  ┌──────────────┐                    │
+│  │ Serial Bridge│  │ Telemetry    │                    │
+│  └──────┬───────┘  └──────┬───────┘                    │
+└─────────┼──────────────────┼────────────────────────────┘
+          │                  │
+          ▼                  ▼
+┌─────────────────────────────────────────────────────────┐
+│                    Arduino Firmware                       │
+│  ┌──────────────┐  ┌──────────────┐                    │
+│  │ Motor Control│  │ Ultrasonic   │                    │
+│  │ + Config     │  │ + Safety     │                    │
+│  └──────────────┘  └──────────────┘                    │
+└─────────────────────────────────────────────────────────┘
+Mode Switching Logic:
+
+PS5 Share Button: Toggles between MANUAL and AGENT modes
+Control Center: Can override any mode, force EMERGENCY STOP
+Arduino Safety: Can force EMERGENCY STOP regardless of mode
+Agent: Can request mode change, but Control Center has final authority
+Configuration Flow:
+
+Control Center sends config via API to Agent Controller
+Agent Controller forwards config to Rock64 ROS2 node
+Rock64 sends config commands to Arduino via serial
+Arduino applies config and saves to EEPROM
+Arduino confirms config change via telemetry
+6 / 7 tasks done
+Thought for 1s
+Revised Implementation Timeline
+Week 1-2: Foundation (Arduino + Sensors)
+
+Arduino ultrasonic sensor integration (HC-SR04)
+Arduino servo scanning mode
+Arduino configurable parameters (EEPROM storage)
+Arduino configuration serial commands
+Test sensor accuracy and servo panning
+Week 3: PS5 Integration
+
+PS5 Share button detection
+PS5 mode toggle logic (MANUAL/AGENT)
+PS5 emergency stop button mapping
+Test mode switching and button mapping
+Week 4: Control Center Backend
+
+Flask/FastAPI web server setup
+Configuration API endpoints
+Agent command API endpoints
+Telemetry WebSocket streaming
+Configuration persistence (JSON/YAML)
+Week 5: Control Center Frontend
+
+Web UI development (HTML/CSS/JS)
+Configuration panel (motor, safety, servo)
+Agent control panel (mode, commands, learning)
+Telemetry display (real-time updates)
+Emergency controls
+Week 6: Agent Controller
+
+Computer vision integration (OpenCV)
+Obstacle detection from camera frames
+Rule-based navigation logic
+Safety monitoring integration
+Motor command generation
+Week 7: Agent Learning System
+
+Experience replay buffer
+Rule-based parameter tuning
+Training data collection
+Model persistence
+Performance metrics dashboard
+Week 8: System Integration
+
+Integrate control center with PS5 bridge
+Integrate control center with agent controller
+Integrate control center with Rock64 ROS2 node
+Mode hierarchy and priority testing
+Configuration flow testing
+Week 9: Safety Systems
+
+Arduino emergency stop testing
+Rock64 velocity validation
+PC agent collision detection
+Multi-layer safety integration
+Emergency stop override testing
+Week 10: End-to-End Testing
+
+Full system integration test
+Long-duration stability test
+Edge case testing
+Performance optimization
+Documentation and user guide
+7 / 7 tasks done
+Thought for 1s
+Updated Plan Summary with Control Center
+New Architecture Components:
+
+Control Center: Web-based UI (Flask/FastAPI + HTML/CSS/JS) for configuration, agent control, and telemetry
+Agent Learning System: Rule-based parameter tuning with experience replay and model persistence
+Configuration Management: JSON/YAML storage for motor speeds, direction mappings, safety thresholds
+Command API: REST endpoints for configuration, agent control, and emergency commands
+Enhanced Arduino: Configurable parameters via serial commands with EEPROM persistence
+Key Features:
+
+Modify max/min speeds and wheel directions via web UI
+Send commands to agent (navigation, exploration, goal-reaching)
+Agent learns over time through parameter tuning
+Real-time telemetry display (ultrasonic, motors, servo, camera)
+Multi-layer safety with emergency stop from any source
+Mode hierarchy: E-STOP > Control Center > PS5 Manual > Agent
+Updated File Changes:
+
+main.cpp - Add ultrasonic, configurable parameters, EEPROM storage
+ps5_windows_bridge.py - Add Share button, mode toggle, E-stop mapping
+host_control/control_center.py (NEW) - Flask/FastAPI web server
+host_control/agent_controller.py (NEW) - Vision-based navigation + learning
+ros2_ws/src/robot_control/robot_control_node.py - Config parsing, safety forwarding
+ros2_ws/src/robot_control/safety_monitor.py (NEW) - Multi-sensor fusion
+host_control/static/ (NEW) - Web UI files
+Revised Timeline: 10 weeks (extended from 5 weeks due to control center complexity)
+
+Weeks 1-2: Arduino sensors + configurable parameters
+Week 3: PS5 integration
+Week 4: Control center backend
+Week 5: Control center frontend
+Week 6: Agent controller
+Week 7: Agent learning system
+Week 8: System integration
+Week 9: Safety systems
+Week 10: End-to-end testing
+Next Steps:
+
+Identify ultrasonic sensor TRIG/ECHO pins on your shield
+Verify Share button index on PS5 controller (python host_control/ps5_windows_bridge.py --list-joysticks)
+Choose web framework (Flask simpler, FastAPI faster)
+Decide on learning approach (rule-based tuning recommended for safety)
+Ready to begin implementation with Arduino ultrasonic sensor integration, or need clarification on any component?
+
+
+

@@ -1,0 +1,9 @@
+Parameter	Value	Location/Context
+Rock64 IP	192.168.1.159	Static/Reserved Host IP
+Camera IP (Station)	192.168.1.153	Static/Reserved Cam IP
+Camera IP (AP Mode)	192.168.4.1	Default AP Mode Fallback
+Expected SSID	TELUS4424	WiFi Network Identifier
+ROS_DOMAIN_ID	0	ROS 2 Discovery Namespace
+Discovery Server	192.168.1.159:11811	ROS 2 Static Discovery
+Serial Port	/dev/ttyUSB0 // or use USB*	Physical Hardware Bridge
+Baud Rate	115200	Serial Communication Speed

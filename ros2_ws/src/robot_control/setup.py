@@ -39,7 +39,9 @@ setup(
             'robot_control.keyboard_terminal_teleop:main',
             'ps5_ros_bridge = robot_control.ps5_ros_bridge:main',
             'robot_control_node = robot_control.robot_control_node:main',
+            'safety_watchdog = robot_control.safety_watchdog:main',
             'stream_viewer = robot_control.stream_viewer:main',
+            'ai_control_node = robot_control.ai_control_node:main',
         ],
     },
 )

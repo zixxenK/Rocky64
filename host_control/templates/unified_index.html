@@ -1,0 +1,1513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rock64 Robot Control Dashboard</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: #0a0a0a;
+            color: #c0c0c0;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 15px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 2px solid #333;
+            margin-bottom: 15px;
+        }
+
+        h1 {
+            font-size: 1.5em;
+            color: #00ff00;
+            font-weight: normal;
+            letter-spacing: 1px;
+        }
+
+        .system-status-bar {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            font-size: 0.85em;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid #333;
+            padding: 4px 10px;
+            background: #111;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-online {
+            background: #00ff00;
+        }
+
+        .status-offline {
+            background: #ff0000;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .card {
+            background: #111;
+            border: 1px solid #333;
+            padding: 15px;
+        }
+
+        .card h2 {
+            color: #00ff00;
+            margin-bottom: 12px;
+            font-size: 1.1em;
+            border-bottom: 1px solid #333;
+            padding-bottom: 8px;
+            font-weight: normal;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .video-container {
+            width: 100%;
+            aspect-ratio: 4/3;
+            background: #000;
+            border: 1px solid #333;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .control-panel {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .mode-display {
+            text-align: center;
+            padding: 12px;
+            font-size: 1.2em;
+            font-weight: bold;
+            border: 1px solid #333;
+            margin-bottom: 15px;
+            background: #111;
+        }
+
+        .mode-manual {
+            color: #00ff00;
+            border-color: #00ff00;
+        }
+
+        .mode-agent {
+            color: #00ffff;
+            border-color: #00ffff;
+        }
+
+        .mode-estop {
+            color: #ff0000;
+            border-color: #ff0000;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        button {
+            padding: 8px 16px;
+            border: 1px solid #333;
+            background: #111;
+            color: #00ff00;
+            cursor: pointer;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+            margin-right: 8px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        button:hover {
+            background: #222;
+            border-color: #00ff00;
+        }
+
+        button:active {
+            background: #00ff00;
+            color: #000;
+        }
+
+        .btn-danger {
+            color: #ff0000;
+            border-color: #ff0000;
+        }
+
+        .btn-danger:hover {
+            background: #222;
+            border-color: #ff0000;
+        }
+
+        .btn-danger:active {
+            background: #ff0000;
+            color: #000;
+        }
+
+        .btn-warning {
+            color: #ffff00;
+            border-color: #ffff00;
+        }
+
+        .btn-warning:hover {
+            background: #222;
+            border-color: #ffff00;
+        }
+
+        .btn-warning:active {
+            background: #ffff00;
+            color: #000;
+        }
+
+        .telemetry-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .telemetry-item {
+            background: #111;
+            border: 1px solid #333;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .telemetry-value {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #00ff00;
+        }
+
+        .telemetry-label {
+            font-size: 0.75em;
+            color: #666;
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .virtual-joystick {
+            width: 200px;
+            height: 200px;
+            background: #111;
+            border: 1px solid #333;
+            margin: 20px auto;
+            position: relative;
+        }
+
+        .joystick-handle {
+            width: 60px;
+            height: 60px;
+            background: #00ff00;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+        }
+
+        .config-section {
+            margin-bottom: 15px;
+        }
+
+        .config-section h3 {
+            color: #00ff00;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .form-group {
+            margin-bottom: 10px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 4px;
+            color: #666;
+            font-size: 0.8em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        input[type="number"],
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 6px;
+            border: 1px solid #333;
+            background: #000;
+            color: #00ff00;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: #00ff00;
+        }
+
+        .collapsible {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .collapsible::after {
+            content: ' [+]';
+            font-size: 0.8em;
+        }
+
+        .collapsed::after {
+            content: ' [-]';
+        }
+
+        .collapsible-content {
+            max-height: 1000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .collapsed + .collapsible-content {
+            max-height: 0;
+        }
+
+        .alert {
+            padding: 10px;
+            border: 1px solid #333;
+            margin-bottom: 15px;
+            display: none;
+            background: #111;
+            font-size: 0.85em;
+        }
+
+        .alert-success {
+            border-color: #00ff00;
+            color: #00ff00;
+        }
+
+        .alert-error {
+            border-color: #ff0000;
+            color: #ff0000;
+        }
+
+        .boot-controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .boot-progress {
+            background: #111;
+            border: 1px solid #333;
+            padding: 8px;
+            margin-bottom: 8px;
+            font-size: 0.85em;
+        }
+
+        .agent-status {
+            background: #111;
+            border: 1px solid #333;
+            padding: 10px;
+            margin-bottom: 12px;
+        }
+
+        .agent-status-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            font-size: 0.85em;
+        }
+
+        .keyboard-hint {
+            background: #111;
+            border: 1px solid #333;
+            padding: 8px;
+            margin-top: 12px;
+            font-size: 0.8em;
+            color: #666;
+        }
+
+        .keyboard-hint kbd {
+            background: #222;
+            padding: 2px 6px;
+            border: 1px solid #333;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: #00ff00;
+        }
+
+        .log-output {
+            background: #000;
+            border: 1px solid #333;
+            padding: 10px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.75em;
+            color: #00ff00;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+
+        .log-entry {
+            margin-bottom: 2px;
+        }
+
+        .log-timestamp {
+            color: #666;
+            margin-right: 8px;
+        }
+
+        .camera-controls {
+            background: #111;
+            border: 1px solid #333;
+            padding: 10px;
+        }
+
+        .camera-info {
+            background: #111;
+            border: 1px solid #333;
+            padding: 8px;
+        }
+
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>ROCK64 ROBOT CONTROL DASHBOARD</h1>
+            <div class="system-status-bar">
+                <div class="status-indicator">
+                    <div class="status-dot" id="status-ros2"></div>
+                    <span>ROS2</span>
+                </div>
+                <div class="status-indicator">
+                    <div class="status-dot" id="status-ssh"></div>
+                    <span>SSH</span>
+                </div>
+                <div class="status-indicator">
+                    <div class="status-dot" id="status-serial"></div>
+                    <span>SERIAL</span>
+                </div>
+                <div class="status-indicator">
+                    <div class="status-dot" id="status-camera"></div>
+                    <span>CAMERA</span>
+                </div>
+                <div class="status-indicator">
+                    <div class="status-dot" id="status-agent"></div>
+                    <span>AGENT</span>
+                </div>
+                <div class="status-indicator">
+                    <div class="status-dot" id="status-ollama"></div>
+                    <span>OLLAMA</span>
+                </div>
+                <div class="status-indicator">
+                    <div class="status-dot" id="status-ai"></div>
+                    <span>AI NODE</span>
+                </div>
+            </div>
+        </header>
+
+        <div id="alert-success" class="alert alert-success"></div>
+        <div id="alert-error" class="alert alert-error"></div>
+
+        <div class="main-grid">
+            <!-- Left Column: Video and Controls -->
+            <div class="left-column">
+                <!-- Video Stream -->
+                <div class="card">
+                    <h2>Camera Feed</h2>
+                    <div class="camera-controls" style="margin-bottom: 12px;">
+                        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <select id="camera-source" onchange="switchCameraSource()" style="width: auto; min-width: 120px;">
+                                <option value="usb">USB Camera</option>
+                                <option value="esp32">ESP32</option>
+                                <option value="ros2">ROS2</option>
+                            </select>
+                            <select id="camera-index" onchange="switchCamera()" style="width: auto; min-width: 100px;">
+                                <option value="0">Camera 0</option>
+                                <option value="1">Camera 1</option>
+                                <option value="2">Camera 2</option>
+                                <option value="3">Camera 3</option>
+                            </select>
+                            <button onclick="refreshCameras()">Refresh</button>
+                            <span id="camera-status" style="font-size: 0.8em; color: #666;">Checking...</span>
+                        </div>
+                    </div>
+                    <div class="video-container">
+                        <img id="camera-stream" src="/api/camera/stream" alt="Camera Stream" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23000%22 width=%22400%22 height=%22300%22/%3E%3Ctext fill=%22%23333%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22%3ENo Signal%3C/text%3E%3C/svg%3E'">
+                        <button onclick="refreshStream()" style="position: absolute; top: 10px; right: 10px; padding: 5px 10px; font-size: 0.8em; background: rgba(0,0,0,0.7); border: 1px solid #333; color: #00ff00; cursor: pointer;">Refresh Stream</button>
+                    </div>
+                    <div class="camera-info" style="margin-top: 10px; font-size: 0.8em; color: #666;">
+                        <span id="camera-resolution">Resolution: --</span> | 
+                        <span id="camera-fps">FPS: --</span>
+                    </div>
+                </div>
+
+                <!-- Manual Control -->
+                <div class="card">
+                    <h2>Manual Control</h2>
+                    <div class="mode-display" id="mode-display">MANUAL</div>
+                    <div class="control-panel">
+                        <div>
+                            <button onclick="setMode('MANUAL')">Manual Mode</button>
+                            <button onclick="setMode('AGENT')">Agent Mode</button>
+                        </div>
+                        <div>
+                            <button class="btn-danger" onclick="emergencyStop()">Emergency Stop</button>
+                            <button class="btn-warning" onclick="resetEmergency()">Reset E-Stop</button>
+                        </div>
+                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
+                            <strong style="color: #00ff00; display: block; margin-bottom: 10px;">PS5 Controller (Windows)</strong>
+                            <button onclick="startPS5()">Start PS5</button>
+                            <button class="btn-warning" onclick="stopPS5()">Stop PS5</button>
+                            <p style="font-size: 0.8em; color: #666; margin-top: 8px;">
+                                PS5 DualSense controller for direct control. Virtual joystick disabled on Windows.
+                            </p>
+                        </div>
+                        </div>
+                    </div>
+                    
+                    <div class="virtual-joystick" id="joystick" style="display: none;">
+                        <div class="joystick-handle" id="joystick-handle"></div>
+                    </div>
+                    
+                    <div class="keyboard-hint" style="display: none;">
+                        <strong>Keyboard Controls:</strong><br>
+                        <kbd>W</kbd> Forward <kbd>S</kbd> Backward<br>
+                        <kbd>A</kbd> Turn Left <kbd>D</kbd> Turn Right<br>
+                        <kbd>Q</kbd> Servo Left <kbd>E</kbd> Servo Right<br>
+                        <kbd>Space</kbd> Stop
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Status and Configuration -->
+            <div class="right-column">
+                <!-- System Boot -->
+                <div class="card">
+                    <h2 class="collapsible" onclick="toggleSection(this)">System Boot</h2>
+                    <div class="collapsible-content">
+                        <div class="boot-controls">
+                            <button onclick="bootSystem()">Boot All</button>
+                            <button class="btn-warning" onclick="shutdownSystem()">Shutdown All</button>
+                        </div>
+                        <div class="boot-progress" id="boot-progress">Status: idle</div>
+                        <div id="boot-errors" style="color: #ff0000; font-size: 0.8em;"></div>
+                    </div>
+                </div>
+
+                <!-- Agent Status -->
+                <div class="card">
+                    <h2 class="collapsible" onclick="toggleSection(this)">Agent Status</h2>
+                    <div class="collapsible-content">
+                        <div class="agent-status">
+                            <div class="agent-status-item">
+                                <span>Status:</span>
+                                <span id="agent-status">Stopped</span>
+                            </div>
+                            <div class="agent-status-item">
+                                <span>Mode:</span>
+                                <span id="agent-mode">Manual</span>
+                            </div>
+                            <div class="agent-status-item">
+                                <span>Obstacle Detected:</span>
+                                <span id="obstacle-detected">No</span>
+                            </div>
+                            <div class="agent-status-item">
+                                <span>Obstacle Direction:</span>
+                                <span id="obstacle-direction">None</span>
+                            </div>
+                        </div>
+                        <div>
+                            <button onclick="startAgent()">Start Agent</button>
+                            <button class="btn-warning" onclick="stopAgent()">Stop Agent</button>
+                            <button onclick="restartAgent()">Restart Agent</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Control -->
+                <div class="card">
+                    <h2 class="collapsible" onclick="toggleSection(this)">AI Control (LM Studio)</h2>
+                    <div class="collapsible-content">
+                        <div class="agent-status">
+                            <div class="agent-status-item">
+                                <span>AI Node Status:</span>
+                                <span id="ai-node-status">Stopped</span>
+                            </div>
+                            <div class="agent-status-item">
+                                <span>AI Node PID:</span>
+                                <span id="ai-node-pid">--</span>
+                            </div>
+                            <div class="agent-status-item">
+                                <span>LM Studio URL:</span>
+                                <span id="lm-studio-url">--</span>
+                            </div>
+                        </div>
+                        <div class="config-section" style="margin-top: 12px;">
+                            <h3>AI Thinking</h3>
+                            <div class="log-output" id="ai-thinking" style="max-height: 100px;">Waiting for AI node...</div>
+                        </div>
+                        <div class="config-section" style="margin-top: 12px;">
+                            <h3>AI Decision</h3>
+                            <div class="log-output" id="ai-decision" style="max-height: 100px;">No decision yet...</div>
+                        </div>
+                        <div style="margin-top: 12px;">
+                            <button onclick="startAINode()">Start AI Node</button>
+                            <button class="btn-warning" onclick="stopAINode()">Stop AI Node</button>
+                            <button onclick="restartAINode()">Restart AI Node</button>
+                        </div>
+                        <div class="config-section" style="margin-top: 12px;">
+                            <h3>AI Configuration</h3>
+                            <div class="form-group">
+                                <label>LM Studio URL</label>
+                                <input type="text" id="lm-studio-url-input" value="http://192.168.1.81:1234/v1">
+                            </div>
+                            <div class="form-group">
+                                <label>AI Loop Rate (Hz)</label>
+                                <input type="number" id="ai-loop-rate" value="0.5" step="0.1" min="0.1" max="2.0">
+                            </div>
+                            <button onclick="updateAIConfig()">Update AI Config</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Telemetry -->
+                <div class="card">
+                    <h2>Telemetry</h2>
+                    <div class="telemetry-grid">
+                        <div class="telemetry-item">
+                            <div class="telemetry-value" id="ultrasonic-distance">--</div>
+                            <div class="telemetry-label">Ultrasonic (cm)</div>
+                        </div>
+                        <div class="telemetry-item">
+                            <div class="telemetry-value" id="motor1-speed">--</div>
+                            <div class="telemetry-label">Motor 1 Speed</div>
+                        </div>
+                        <div class="telemetry-item">
+                            <div class="telemetry-value" id="motor2-speed">--</div>
+                            <div class="telemetry-label">Motor 2 Speed</div>
+                        </div>
+                        <div class="telemetry-item">
+                            <div class="telemetry-value" id="servo-position">--</div>
+                            <div class="telemetry-label">Servo Position</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Information -->
+                <div class="card">
+                    <h2 class="collapsible" onclick="toggleSection(this)">System Information</h2>
+                    <div class="collapsible-content">
+                        <div class="agent-status">
+                            <div class="agent-status-item">
+                                <span>Platform:</span>
+                                <span id="system-platform">--</span>
+                            </div>
+                            <div class="agent-status-item">
+                                <span>Boot Progress:</span>
+                                <span id="system-boot-progress">--</span>
+                            </div>
+                            <div class="agent-status-item">
+                                <span>Agent PID:</span>
+                                <span id="agent-pid">--</span>
+                            </div>
+                            <div class="agent-status-item">
+                                <span>SSH Host:</span>
+                                <span id="ssh-host">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configuration -->
+                <div class="card">
+                    <h2 class="collapsible" onclick="toggleSection(this)">Motor Configuration</h2>
+                    <div class="collapsible-content">
+                        <div class="config-section">
+                            <h3>Motor 1</h3>
+                            <div class="form-group">
+                                <label>Min Speed</label>
+                                <input type="number" id="motor1-min-speed" value="100" min="0" max="255">
+                            </div>
+                            <div class="form-group">
+                                <label>Max Speed</label>
+                                <input type="number" id="motor1-max-speed" value="180" min="0" max="255">
+                            </div>
+                        </div>
+                        <div class="config-section">
+                            <h3>Motor 2</h3>
+                            <div class="form-group">
+                                <label>Min Speed</label>
+                                <input type="number" id="motor2-min-speed" value="100" min="0" max="255">
+                            </div>
+                            <div class="form-group">
+                                <label>Max Speed</label>
+                                <input type="number" id="motor2-max-speed" value="180" min="0" max="255">
+                            </div>
+                        </div>
+                        <div class="config-section">
+                            <h3>Safety</h3>
+                            <div class="form-group">
+                                <label>Stop Distance (cm)</label>
+                                <input type="number" id="safety-stop-distance" value="10" min="0" max="200">
+                            </div>
+                            <div class="form-group">
+                                <label>Max Speed Limit</label>
+                                <input type="number" id="safety-max-speed" value="180" min="0" max="255">
+                            </div>
+                        </div>
+                        <button onclick="saveConfig()">Save Configuration</button>
+                    </div>
+                </div>
+
+                <!-- Dashboard Settings -->
+                <div class="card">
+                    <h2 class="collapsible" onclick="toggleSection(this)">Dashboard Settings</h2>
+                    <div class="collapsible-content">
+                        <div class="config-section">
+                            <h3>Display Options</h3>
+                            <div class="form-group">
+                                <label>Refresh Rate (ms)</label>
+                                <input type="number" id="refresh-rate" value="1000" min="100" max="5000">
+                            </div>
+                            <div class="form-group">
+                                <label>Show Telemetry</label>
+                                <select id="show-telemetry">
+                                    <option value="true">Enabled</option>
+                                    <option value="false">Disabled</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Show System Info</label>
+                                <select id="show-system-info">
+                                    <option value="true">Enabled</option>
+                                    <option value="false">Disabled</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button onclick="saveDashboardSettings()">Save Settings</button>
+                    </div>
+                </div>
+
+                <!-- Camera Settings -->
+                <div class="card">
+                    <h2 class="collapsible" onclick="toggleSection(this)">Camera Settings</h2>
+                    <div class="collapsible-content">
+                        <div class="config-section">
+                            <h3>Resolution</h3>
+                            <div class="form-group">
+                                <label>Width</label>
+                                <select id="camera-width" onchange="updateCameraSettings()">
+                                    <option value="320">320 (QVGA)</option>
+                                    <option value="640">640 (VGA)</option>
+                                    <option value="1280">1280 (HD)</option>
+                                    <option value="1920">1920 (FHD)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Height</label>
+                                <select id="camera-height" onchange="updateCameraSettings()">
+                                    <option value="240">240 (QVGA)</option>
+                                    <option value="480">480 (VGA)</option>
+                                    <option value="720">720 (HD)</option>
+                                    <option value="1080">1080 (FHD)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="config-section">
+                            <h3>Performance</h3>
+                            <div class="form-group">
+                                <label>Target FPS</label>
+                                <select id="camera-fps" onchange="updateCameraSettings()">
+                                    <option value="15">15 FPS</option>
+                                    <option value="30">30 FPS</option>
+                                    <option value="60">60 FPS</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>JPEG Quality</label>
+                                <input type="range" id="jpeg-quality" min="50" max="100" value="85" onchange="updateCameraSettings()">
+                                <span id="jpeg-quality-value">85</span>
+                            </div>
+                        </div>
+                        <button onclick="saveCameraSettings()">Apply Camera Settings</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let joystickActive = false;
+        let joystickPosition = { x: 0, y: 0 };
+        let servoPosition = 90;
+        let keyStates = {};
+
+        // Socket event handlers
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            showAlert('Connected to unified dashboard', 'success');
+        });
+
+        socket.on('telemetry_update', (data) => {
+            updateTelemetry(data);
+        });
+
+        socket.on('mode_update', (data) => {
+            updateModeDisplay(data.mode);
+            document.getElementById('agent-mode').textContent = data.mode;
+        });
+
+        socket.on('system_status', (data) => {
+            updateSystemStatus(data);
+        });
+
+        socket.on('emergency_stop', (data) => {
+            showAlert('Emergency stop triggered!', 'error');
+            updateModeDisplay('E-STOP');
+        });
+
+        // API functions
+        async function setMode(mode) {
+            try {
+                const response = await fetch('/api/agent/mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode })
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert(`Mode set to ${mode}`, 'success');
+                    updateModeDisplay(mode);
+                }
+            } catch (error) {
+                showAlert('Failed to set mode', 'error');
+            }
+        }
+
+        async function emergencyStop() {
+            try {
+                const response = await fetch('/api/emergency/stop', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('Emergency stop triggered!', 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to trigger emergency stop', 'error');
+            }
+        }
+
+        async function resetEmergency() {
+            try {
+                const response = await fetch('/api/emergency/reset', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('Emergency reset', 'success');
+                    setMode('MANUAL');
+                }
+            } catch (error) {
+                showAlert('Failed to reset emergency', 'error');
+            }
+        }
+
+        async function bootSystem() {
+            try {
+                document.getElementById('boot-progress').textContent = 'Status: booting...';
+                const response = await fetch('/api/system/boot', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('System booted successfully', 'success');
+                    document.getElementById('boot-progress').textContent = 'Status: complete';
+                } else if (data.status === 'partial') {
+                    showAlert('System booted with errors', 'error');
+                    document.getElementById('boot-progress').textContent = 'Status: partial';
+                    document.getElementById('boot-errors').textContent = 'Errors: ' + (data.errors || []).join(', ');
+                }
+            } catch (error) {
+                showAlert('Failed to boot system', 'error');
+                document.getElementById('boot-progress').textContent = 'Status: failed';
+            }
+        }
+
+        async function shutdownSystem() {
+            try {
+                const response = await fetch('/api/system/shutdown', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('System shut down', 'success');
+                    document.getElementById('boot-progress').textContent = 'Status: idle';
+                }
+            } catch (error) {
+                showAlert('Failed to shutdown system', 'error');
+            }
+        }
+
+        async function startAgent() {
+            try {
+                const response = await fetch('/api/agent/start', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('Agent started', 'success');
+                    document.getElementById('agent-status').textContent = 'Running';
+                }
+            } catch (error) {
+                showAlert('Failed to start agent', 'error');
+            }
+        }
+
+        async function stopAgent() {
+            try {
+                const response = await fetch('/api/agent/stop', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('Agent stopped', 'success');
+                    document.getElementById('agent-status').textContent = 'Stopped';
+                }
+            } catch (error) {
+                showAlert('Failed to stop agent', 'error');
+            }
+        }
+
+        async function restartAgent() {
+            try {
+                const response = await fetch('/api/agent/restart', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('Agent restarted', 'success');
+                    document.getElementById('agent-status').textContent = 'Running';
+                }
+            } catch (error) {
+                showAlert('Failed to restart agent', 'error');
+            }
+        }
+
+        async function startAINode() {
+            try {
+                const response = await fetch('/api/ai/start', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('AI node started', 'success');
+                    document.getElementById('ai-node-status').textContent = 'Running';
+                }
+            } catch (error) {
+                showAlert('Failed to start AI node', 'error');
+            }
+        }
+
+        async function stopAINode() {
+            try {
+                const response = await fetch('/api/ai/stop', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('AI node stopped', 'success');
+                    document.getElementById('ai-node-status').textContent = 'Stopped';
+                }
+            } catch (error) {
+                showAlert('Failed to stop AI node', 'error');
+            }
+        }
+
+        async function restartAINode() {
+            try {
+                const response = await fetch('/api/ai/restart', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('AI node restarted', 'success');
+                    document.getElementById('ai-node-status').textContent = 'Running';
+                }
+            } catch (error) {
+                showAlert('Failed to restart AI node', 'error');
+            }
+        }
+
+        async function updateAIConfig() {
+            try {
+                const config = {
+                    lm_studio_url: document.getElementById('lm-studio-url-input').value,
+                    ai_loop_rate: parseFloat(document.getElementById('ai-loop-rate').value),
+                };
+                const response = await fetch('/api/ai/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('AI config updated', 'success');
+                    document.getElementById('lm-studio-url').textContent = config.lm_studio_url;
+                }
+            } catch (error) {
+                showAlert('Failed to update AI config', 'error');
+            }
+        }
+
+        async function startPS5() {
+            try {
+                const response = await fetch('/api/ps5/start', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('PS5 controller started', 'success');
+                    document.getElementById('agent-status').textContent = 'Running (PS5)';
+                }
+            } catch (error) {
+                showAlert('Failed to start PS5 controller', 'error');
+            }
+        }
+
+        async function stopPS5() {
+            try {
+                const response = await fetch('/api/ps5/stop', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('PS5 controller stopped', 'success');
+                    document.getElementById('agent-status').textContent = 'Stopped';
+                }
+            } catch (error) {
+                showAlert('Failed to stop PS5 controller', 'error');
+            }
+        }
+
+        async function saveConfig() {
+            const config = {
+                motor1: {
+                    min_speed: parseInt(document.getElementById('motor1-min-speed').value),
+                    max_speed: parseInt(document.getElementById('motor1-max-speed').value)
+                },
+                motor2: {
+                    min_speed: parseInt(document.getElementById('motor2-min-speed').value),
+                    max_speed: parseInt(document.getElementById('motor2-max-speed').value)
+                },
+                safety: {
+                    stop_distance: parseInt(document.getElementById('safety-stop-distance').value),
+                    max_speed_limit: parseInt(document.getElementById('safety-max-speed').value)
+                }
+            };
+
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('Configuration saved', 'success');
+                }
+            } catch (error) {
+                showAlert('Failed to save configuration', 'error');
+            }
+        }
+
+        async function saveDashboardSettings() {
+            const settings = {
+                refresh_rate: parseInt(document.getElementById('refresh-rate').value),
+                show_telemetry: document.getElementById('show-telemetry').value === 'true',
+                show_system_info: document.getElementById('show-system-info').value === 'true'
+            };
+
+            // Save to localStorage
+            localStorage.setItem('dashboardSettings', JSON.stringify(settings));
+            
+            // Apply settings
+            applyDashboardSettings(settings);
+            
+            showAlert('Dashboard settings saved', 'success');
+        }
+
+        function applyDashboardSettings(settings) {
+            // Apply visibility settings
+            const telemetryCard = document.querySelector('.card h2').parentElement;
+            if (telemetryCard) {
+                // Find the telemetry card by checking if it has telemetry-grid
+                const cards = document.querySelectorAll('.card');
+                cards.forEach(card => {
+                    const h2 = card.querySelector('h2');
+                    if (h2 && h2.textContent === 'Telemetry') {
+                        card.style.display = settings.show_telemetry ? 'block' : 'none';
+                    }
+                    if (h2 && h2.textContent === 'System Information') {
+                        card.style.display = settings.show_system_info ? 'block' : 'none';
+                    }
+                });
+            }
+        }
+
+        function loadDashboardSettings() {
+            const saved = localStorage.getItem('dashboardSettings');
+            if (saved) {
+                const settings = JSON.parse(saved);
+                document.getElementById('refresh-rate').value = settings.refresh_rate || 1000;
+                document.getElementById('show-telemetry').value = settings.show_telemetry ? 'true' : 'false';
+                document.getElementById('show-system-info').value = settings.show_system_info ? 'true' : 'false';
+                applyDashboardSettings(settings);
+            }
+        }
+
+        // Load settings on page load
+        window.addEventListener('load', loadDashboardSettings);
+
+        // Camera functions
+        async function refreshCameras() {
+            try {
+                const response = await fetch('/api/cameras');
+                const data = await response.json();
+                if (data.status === 'error') {
+                    document.getElementById('camera-status').textContent = 'Error: ' + data.message;
+                    return;
+                }
+                
+                // Update camera index dropdown
+                const indexSelect = document.getElementById('camera-index');
+                indexSelect.innerHTML = '';
+                data.cameras.forEach(cam => {
+                    const option = document.createElement('option');
+                    option.value = cam.index;
+                    option.textContent = `${cam.name} (${cam.width}x${cam.height})`;
+                    indexSelect.appendChild(option);
+                });
+                
+                // Set current selection
+                document.getElementById('camera-source').value = data.current_source;
+                document.getElementById('camera-index').value = data.current_index;
+                
+                document.getElementById('camera-status').textContent = `${data.cameras.length} cameras found`;
+                
+                // Update resolution display
+                if (data.cameras.length > 0) {
+                    const currentCam = data.cameras.find(c => c.index === data.current_index);
+                    if (currentCam) {
+                        document.getElementById('camera-resolution').textContent = `Resolution: ${currentCam.width}x${currentCam.height}`;
+                    }
+                }
+            } catch (error) {
+                document.getElementById('camera-status').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function switchCamera() {
+            const source = document.getElementById('camera-source').value;
+            const index = parseInt(document.getElementById('camera-index').value);
+            
+            try {
+                const response = await fetch('/api/camera/switch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source, index })
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert(`Switched to ${source} camera ${index}`, 'success');
+                    // Reload camera stream
+                    document.getElementById('camera-stream').src = '/api/camera/stream?' + new Date().getTime();
+                } else {
+                    showAlert('Failed to switch camera: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to switch camera: ' + error.message, 'error');
+            }
+        }
+
+        async function switchCameraSource() {
+            const source = document.getElementById('camera-source').value;
+            const indexSelect = document.getElementById('camera-index');
+            
+            // Disable index selection for non-USB sources
+            if (source !== 'usb') {
+                indexSelect.disabled = true;
+            } else {
+                indexSelect.disabled = false;
+            }
+            
+            switchCamera();
+        }
+
+        // Refresh cameras on page load
+        window.addEventListener('load', refreshCameras);
+
+        function updateCameraSettings() {
+            const quality = document.getElementById('jpeg-quality').value;
+            document.getElementById('jpeg-quality-value').textContent = quality;
+        }
+
+        async function refreshStream() {
+            try {
+                const response = await fetch('/api/camera/refresh', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    // Reload camera stream with timestamp to force refresh
+                    document.getElementById('camera-stream').src = '/api/camera/stream?' + new Date().getTime();
+                    showAlert('Camera stream refreshed', 'success');
+                } else {
+                    showAlert('Failed to refresh camera stream: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to refresh camera stream: ' + error.message, 'error');
+            }
+        }
+
+        async function saveCameraSettings() {
+            const settings = {
+                width: parseInt(document.getElementById('camera-width').value),
+                height: parseInt(document.getElementById('camera-height').value),
+                fps: parseInt(document.getElementById('camera-fps').value),
+                jpeg_quality: parseInt(document.getElementById('jpeg-quality').value)
+            };
+
+            try {
+                const response = await fetch('/api/camera/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showAlert('Camera settings applied', 'success');
+                    // Reload camera stream
+                    document.getElementById('camera-stream').src = '/api/camera/stream?' + new Date().getTime();
+                } else {
+                    showAlert('Failed to apply camera settings: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to apply camera settings: ' + error.message, 'error');
+            }
+        }
+
+        async function sendMotorCommand(motorId, direction, speed) {
+            try {
+                await fetch('/api/control/motor', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ motor_id: motorId, direction, speed })
+                });
+            } catch (error) {
+                console.error('Failed to send motor command:', error);
+            }
+        }
+
+        async function sendServoCommand(position) {
+            try {
+                await fetch('/api/control/servo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ position })
+                });
+                servoPosition = position;
+            } catch (error) {
+                console.error('Failed to send servo command:', error);
+            }
+        }
+
+        // UI update functions
+        function updateTelemetry(data) {
+            document.getElementById('ultrasonic-distance').textContent = data.ultrasonic_distance || '--';
+            document.getElementById('motor1-speed').textContent = data.motor1_speed || '--';
+            document.getElementById('motor2-speed').textContent = data.motor2_speed || '--';
+            document.getElementById('servo-position').textContent = data.servo_position || '--';
+            document.getElementById('obstacle-detected').textContent = data.obstacle_detected ? 'Yes' : 'No';
+            document.getElementById('obstacle-direction').textContent = data.obstacle_direction || 'None';
+        }
+
+        function updateModeDisplay(mode) {
+            const display = document.getElementById('mode-display');
+            display.className = 'mode-display';
+            
+            switch(mode) {
+                case 'MANUAL':
+                    display.classList.add('mode-manual');
+                    display.textContent = 'MANUAL';
+                    break;
+                case 'AGENT':
+                    display.classList.add('mode-agent');
+                    display.textContent = 'AGENT';
+                    break;
+                case 'E-STOP':
+                    display.classList.add('mode-estop');
+                    display.textContent = 'EMERGENCY STOP';
+                    break;
+                default:
+                    display.classList.add('mode-manual');
+                    display.textContent = mode;
+            }
+        }
+
+        function updateSystemStatus(data) {
+            updateStatusDot('status-ros2', data.ros2_running);
+            updateStatusDot('status-ssh', data.ssh_connected);
+            updateStatusDot('status-serial', data.serial_connected);
+            updateStatusDot('status-camera', data.camera_running);
+            updateStatusDot('status-agent', data.agent_running);
+            updateStatusDot('status-ollama', data.ollama_ready);
+            updateStatusDot('status-ai', data.ai_node_running);
+            
+            document.getElementById('boot-progress').textContent = `Status: ${data.boot_progress || 'idle'}`;
+            
+            // Update system information
+            if (data.platform) {
+                document.getElementById('system-platform').textContent = data.platform;
+            }
+            if (data.boot_progress) {
+                document.getElementById('system-boot-progress').textContent = data.boot_progress;
+            }
+            if (data.agent_pid) {
+                document.getElementById('agent-pid').textContent = data.agent_pid;
+            }
+            if (data.ssh_host) {
+                document.getElementById('ssh-host').textContent = data.ssh_host;
+            }
+            
+            if (data.agent_running) {
+                document.getElementById('agent-status').textContent = 'Running';
+            } else {
+                document.getElementById('agent-status').textContent = 'Stopped';
+            }
+            
+            // Update AI status
+            if (data.ai_node_running) {
+                document.getElementById('ai-node-status').textContent = 'Running';
+            } else {
+                document.getElementById('ai-node-status').textContent = 'Stopped';
+            }
+            if (data.ai_node_pid) {
+                document.getElementById('ai-node-pid').textContent = data.ai_node_pid;
+            }
+            if (data.ai_thinking) {
+                document.getElementById('ai-thinking').textContent = data.ai_thinking;
+            }
+            if (data.ai_decision) {
+                document.getElementById('ai-decision').textContent = data.ai_decision;
+            }
+        }
+
+        function updateStatusDot(elementId, isOnline) {
+            const dot = document.getElementById(elementId);
+            if (isOnline) {
+                dot.classList.remove('status-offline');
+                dot.classList.add('status-online');
+            } else {
+                dot.classList.remove('status-online');
+                dot.classList.add('status-offline');
+            }
+        }
+
+        function toggleSection(header) {
+            header.classList.toggle('collapsed');
+        }
+
+        function showAlert(message, type) {
+            const alertId = type === 'success' ? 'alert-success' : 'alert-error';
+            const alert = document.getElementById(alertId);
+            alert.textContent = message;
+            alert.style.display = 'block';
+            
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 3000);
+        }
+
+        // Virtual joystick (disabled on Windows - use PS5 controller instead)
+        const joystick = document.getElementById('joystick');
+        const joystickHandle = document.getElementById('joystick-handle');
+        const joystickRadius = 70;
+
+        // Only enable joystick on Linux/Rock64 where serial connection works
+        if (navigator.platform.indexOf('Win') === -1) {
+            joystick.style.display = 'block';
+            document.querySelector('.keyboard-hint').style.display = 'block';
+            
+            joystick.addEventListener('mousedown', (e) => {
+                joystickActive = true;
+                updateJoystick(e);
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (joystickActive) {
+                    updateJoystick(e);
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (joystickActive) {
+                    joystickActive = false;
+                    resetJoystick();
+                }
+            });
+
+            function updateJoystick(e) {
+                const rect = joystick.getBoundingClientRect();
+                const centerX = rect.width / 2;
+                const centerY = rect.height / 2;
+                
+                let x = e.clientX - rect.left - centerX;
+                let y = e.clientY - rect.top - centerY;
+                
+                const distance = Math.sqrt(x * x + y * y);
+                if (distance > joystickRadius) {
+                    const angle = Math.atan2(y, x);
+                    x = Math.cos(angle) * joystickRadius;
+                    y = Math.sin(angle) * joystickRadius;
+                }
+                
+                joystickHandle.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+                
+                joystickPosition.x = x / joystickRadius;
+                joystickPosition.y = y / joystickRadius;
+                
+                // Convert to motor speeds
+                const linear = -joystickPosition.y;
+                const angular = -joystickPosition.x;
+                
+                const leftSpeed = Math.round((linear + angular) * 127);
+                const rightSpeed = Math.round((linear - angular) * 127);
+                
+                sendMotorCommand(1, rightSpeed >= 0 ? 'F' : 'B', Math.abs(rightSpeed));
+                sendMotorCommand(2, leftSpeed >= 0 ? 'F' : 'B', Math.abs(leftSpeed));
+            }
+
+            function resetJoystick() {
+                joystickHandle.style.transform = 'translate(-50%, -50%)';
+                joystickPosition = { x: 0, y: 0 };
+                sendMotorCommand(1, 'S', 0);
+                sendMotorCommand(2, 'S', 0);
+            }
+
+            // Keyboard controls (only on Linux/Rock64)
+            document.addEventListener('keydown', (e) => {
+                const key = e.key.toLowerCase();
+                keyStates[key] = true;
+                
+                if (key === ' ') {
+                    sendMotorCommand(1, 'S', 0);
+                    sendMotorCommand(2, 'S', 0);
+                } else if (key === 'q') {
+                    servoPosition = Math.max(0, servoPosition - 5);
+                    sendServoCommand(servoPosition);
+                } else if (key === 'e') {
+                    servoPosition = Math.min(180, servoPosition + 5);
+                    sendServoCommand(servoPosition);
+                }
+                
+                handleKeyboardDrive();
+            });
+
+            document.addEventListener('keyup', (e) => {
+                const key = e.key.toLowerCase();
+                keyStates[key] = false;
+                handleKeyboardDrive();
+            });
+
+            function handleKeyboardDrive() {
+                let linear = 0;
+                let angular = 0;
+                
+                if (keyStates['w']) linear += 0.8;
+                if (keyStates['s']) linear -= 0.8;
+                if (keyStates['a']) angular += 0.7;
+                if (keyStates['d']) angular -= 0.7;
+                
+                const leftSpeed = Math.round((linear + angular) * 127);
+                const rightSpeed = Math.round((linear - angular) * 127);
+                
+                if (linear !== 0 || angular !== 0) {
+                    sendMotorCommand(1, rightSpeed >= 0 ? 'F' : 'B', Math.abs(rightSpeed));
+                    sendMotorCommand(2, leftSpeed >= 0 ? 'F' : 'B', Math.abs(leftSpeed));
+                } else {
+                    sendMotorCommand(1, 'S', 0);
+                    sendMotorCommand(2, 'S', 0);
+                }
+            }
+        }
+
+        // Load initial system status
+        async function loadInitialStatus() {
+            try {
+                const response = await fetch('/api/system/status');
+                const status = await response.json();
+                updateSystemStatus(status);
+            } catch (error) {
+                console.error('Failed to load initial status:', error);
+            }
+        }
+
+        // Initialize
+        loadInitialStatus();
+    </script>
+</body>
+</html>

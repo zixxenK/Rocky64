@@ -1,0 +1,30 @@
+[Unit]
+Description=Rock64 Unified Robot Dashboard
+Documentation=https://github.com/zixxenK/Rocky64
+After=network.target multi-user.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rock64
+Group=rock64
+WorkingDirectory=/home/rock64/ros2_ws/host_control
+Environment="PATH=/home/rock64/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/home/rock64/ros2_ws"
+ExecStart=/usr/bin/python3 /home/rock64/ros2_ws/host_control/unified_dashboard.py --host 0.0.0.0 --port 5000 --serial-port /dev/ttyUSB0 --baud 115200 --boot-all
+ExecStop=/usr/bin/python3 /home/rock64/ros2_ws/host_control/dashboard_boot.py --stop
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rock64-dashboard
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/rock64/ros2_ws
+
+[Install]
+WantedBy=multi-user.target

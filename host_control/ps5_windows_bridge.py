@@ -22,6 +22,11 @@ import subprocess
 import sys
 import time
 import threading
+import json
+import os
+
+# Import platform utilities for cross-platform compatibility
+from platform_utils import get_default_serial_port, get_ssh_key_path
 
 # ---------------------------------------------------------------------------
 # Axis / button layout for DualSense USB on Windows (pygame SDL mapping)
@@ -37,12 +42,56 @@ import threading
 DEADZONE = 0.15       # ignore stick noise below this magnitude
 LINEAR_SCALE = 200.0  # max motor speed for pure forward/back
 ANGULAR_SCALE = 100.0 # max motor contribution from turning
-MAX_SPEED = 255
+MAX_SPEED = 180       # Reduced from 255 for safer operation
 POLL_HZ = 20          # how often to send packets (Hz)
+
+# Mode states
+MODE_MANUAL = "MANUAL"
+MODE_AGENT = "AGENT"
+MODE_ESTOP = "E-STOP"
+
+# Button indices for DualSense (may vary, check with --list-joysticks)
+SHARE_BUTTON_INDEX = 8   # Share button for mode toggle
+PS_BUTTON_INDEX = 0      # PS button for emergency stop
+R3_BUTTON_INDEX = 11     # R3 (right stick press) for emergency stop
+
+# Mode state file
+MODE_STATE_FILE = os.path.join(os.path.dirname(__file__), "mode_state.json")
 
 
 def clamp(value: float, limit: int = MAX_SPEED) -> int:
     return int(max(-limit, min(limit, value)))
+
+
+def load_mode_state() -> str:
+    """Load mode state from file, default to MANUAL."""
+    try:
+        if os.path.exists(MODE_STATE_FILE):
+            with open(MODE_STATE_FILE, 'r') as f:
+                state = json.load(f)
+                return state.get('mode', MODE_MANUAL)
+    except Exception:
+        pass
+    return MODE_MANUAL
+
+
+def save_mode_state(mode: str) -> None:
+    """Save mode state to file."""
+    try:
+        with open(MODE_STATE_FILE, 'w') as f:
+            json.dump({'mode': mode}, f)
+    except Exception:
+        pass
+
+
+def send_mode_to_agent(mode: str) -> None:
+    """Send mode command to agent controller via IPC or file."""
+    try:
+        agent_mode_file = os.path.join(os.path.dirname(__file__), "agent_mode.txt")
+        with open(agent_mode_file, 'w') as f:
+            f.write(mode)
+    except Exception:
+        pass
 
 
 def apply_deadzone(value: float, zone: float = DEADZONE) -> float:
@@ -89,18 +138,25 @@ def open_ssh_pipe(host: str, serial_port: str, baud: int, ssh_key: str,
     Returns the ``subprocess.Popen`` whose ``stdin`` accepts raw motor
     packets, or ``None`` in dry-run mode. Exits the process on failure.
     """
+    # Check if SSH key exists
+    if not os.path.exists(ssh_key):
+        print(f"ERROR: SSH key not found at {ssh_key}")
+        print("Please ensure your SSH key exists or specify the correct path with --ssh-key")
+        sys.exit(1)
+
     # First, check if the serial port exists
     check_cmd = [
         'ssh',
         '-i', ssh_key,
         '-o', 'StrictHostKeyChecking=no',
+        '-o', 'ConnectTimeout=10',
         f'rock64@{host}',
         f'test -c {serial_port} && echo "PORT_EXISTS" || echo "PORT_MISSING"',
     ]
 
     print(f"[bridge] Checking if {serial_port} exists on {host}...")
     try:
-        result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
+        result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=15)
         if "PORT_MISSING" in result.stdout:
             print(f"ERROR: Serial port {serial_port} does not exist on {host}")
             print(f"Available serial ports:")
@@ -108,15 +164,24 @@ def open_ssh_pipe(host: str, serial_port: str, baud: int, ssh_key: str,
                 'ssh',
                 '-i', ssh_key,
                 '-o', 'StrictHostKeyChecking=no',
+                '-o', 'ConnectTimeout=10',
                 f'rock64@{host}',
                 'ls /dev/tty*',
             ]
-            list_result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=5)
+            list_result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=15)
             print(list_result.stdout)
             sys.exit(1)
         print(f"[bridge] Serial port {serial_port} exists.")
     except subprocess.TimeoutExpired:
-        print("ERROR: SSH connection timed out while checking serial port.")
+        print(f"ERROR: SSH connection timed out while checking serial port.")
+        print(f"Troubleshooting:")
+        print(f"  1. Ensure Rock64 is reachable at {host}")
+        print(f"  2. Check network connectivity: ping {host}")
+        print(f"  3. Verify SSH key permissions and path: {ssh_key}")
+        print(f"  4. Test SSH manually: ssh -i {ssh_key} rock64@{host}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: SSH connection failed: {e}")
         sys.exit(1)
 
     ssh_cmd = [
@@ -124,6 +189,8 @@ def open_ssh_pipe(host: str, serial_port: str, baud: int, ssh_key: str,
         '-i', ssh_key,
         '-o', 'StrictHostKeyChecking=no',
         '-o', 'ServerAliveInterval=5',
+        '-o', 'ServerAliveCountMax=3',
+        '-o', 'ConnectTimeout=10',
         f'rock64@{host}',
         f'stty -F {serial_port} {baud} raw -echo; cat > {serial_port}',
     ]
@@ -155,10 +222,15 @@ def open_ssh_pipe(host: str, serial_port: str, baud: int, ssh_key: str,
     stderr_thread.start()
 
     # Give SSH a moment to connect
-    time.sleep(1.5)
+    time.sleep(2.0)
     if ssh_proc.poll() is not None:
         err = ssh_proc.stderr.read().decode()
         print(f"ERROR: SSH connection failed:\n{err}")
+        print(f"Troubleshooting:")
+        print(f"  1. Ensure Rock64 is reachable at {host}")
+        print(f"  2. Check network connectivity: ping {host}")
+        print(f"  3. Verify SSH key is correct: {ssh_key}")
+        print(f"  4. Test SSH manually: ssh -i {ssh_key} rock64@{host}")
         sys.exit(1)
     print("[bridge] SSH connected.")
     return ssh_proc
@@ -168,6 +240,10 @@ def run_bridge(host: str, serial_port: str, baud: int, ssh_key: str,
                joystick_index: int, lefty_axis: int, rightx_axis: int,
                dry_run: bool):
     import pygame
+
+    # ---- Load initial mode state -------------------------------------------
+    current_mode = load_mode_state()
+    print(f"[bridge] Initial mode: {current_mode}")
 
     # ---- Open SSH pipe to Rock64 serial port --------------------------------
     ssh_proc = open_ssh_pipe(host, serial_port, baud, ssh_key, dry_run)
@@ -196,11 +272,17 @@ def run_bridge(host: str, serial_port: str, baud: int, ssh_key: str,
     print()
     print("  Left stick Y  -> forward / back")
     print("  Right stick X -> turn left / right")
+    print(f"  Share button -> Toggle mode (MANUAL <-> AGENT)")
+    print(f"  PS button / R3 -> Emergency stop")
+    print(f"  Current mode: {current_mode}")
     print("  Press Ctrl+C to stop (sends zero-speed packet first).")
     print()
 
     interval = 1.0 / POLL_HZ
     last_left, last_right = None, None
+    last_share_state = False
+    last_ps_state = False
+    last_r3_state = False
 
     def send(left: int, right: int):
         pkt = motor_packet(1, right) + motor_packet(2, left)  # motor 1=right, 2=left
@@ -221,21 +303,55 @@ def run_bridge(host: str, serial_port: str, baud: int, ssh_key: str,
             # Drain pygame events (required to update axis values)
             pygame.event.pump()
 
-            raw_linear  = -apply_deadzone(js.get_axis(lefty_axis))   # invert Y: up = forward
-            raw_angular = -apply_deadzone(js.get_axis(rightx_axis))  # invert X: right stick right = turn right
+            # Check button states for mode switching
+            share_pressed = js.get_button(SHARE_BUTTON_INDEX)
+            ps_pressed = js.get_button(PS_BUTTON_INDEX)
+            r3_pressed = js.get_button(R3_BUTTON_INDEX)
 
-            left_speed, right_speed = twist_to_wheel_speeds(raw_linear, raw_angular)
+            # Handle Share button (mode toggle)
+            if share_pressed and not last_share_state:
+                if current_mode == MODE_MANUAL:
+                    current_mode = MODE_AGENT
+                elif current_mode == MODE_AGENT:
+                    current_mode = MODE_MANUAL
+                save_mode_state(current_mode)
+                send_mode_to_agent(current_mode)
+                print(f"\n[bridge] Mode switched to: {current_mode}")
+            last_share_state = share_pressed
 
-            # Always send every tick — Arduino has a 200ms heartbeat timeout that
-            # releases motors if no packet arrives. Holding the stick must keep sending.
-            send(left_speed, right_speed)
+            # Handle PS button or R3 (emergency stop)
+            if (ps_pressed and not last_ps_state) or (r3_pressed and not last_r3_state):
+                current_mode = MODE_ESTOP
+                save_mode_state(current_mode)
+                send_mode_to_agent(current_mode)
+                print(f"\n[bridge] EMERGENCY STOP triggered!")
+                send(0, 0)  # Stop motors immediately
+            last_ps_state = ps_pressed
+            last_r3_state = r3_pressed
 
-            # Print status line only when values change (avoids console spam)
-            if (left_speed, right_speed) != (last_left, last_right):
-                last_left, last_right = left_speed, right_speed
-                l_bar = '#' * int(abs(left_speed)  / 25)
-                r_bar = '#' * int(abs(right_speed) / 25)
-                print(f"\r  L={left_speed:+4d} [{l_bar:<10}]   R={right_speed:+4d} [{r_bar:<10}]   ", end='', flush=True)
+            # Only send motor commands in MANUAL mode
+            if current_mode == MODE_MANUAL:
+                raw_linear  = -apply_deadzone(js.get_axis(lefty_axis))   # invert Y: up = forward
+                raw_angular = -apply_deadzone(js.get_axis(rightx_axis))  # invert X: right stick right = turn right
+
+                left_speed, right_speed = twist_to_wheel_speeds(raw_linear, raw_angular)
+
+                # Always send every tick — Arduino has a 200ms heartbeat timeout that
+                # releases motors if no packet arrives. Holding the stick must keep sending.
+                send(left_speed, right_speed)
+
+                # Print status line only when values change (avoids console spam)
+                if (left_speed, right_speed) != (last_left, last_right):
+                    last_left, last_right = left_speed, right_speed
+                    l_bar = '#' * int(abs(left_speed)  / 25)
+                    r_bar = '#' * int(abs(right_speed) / 25)
+                    print(f"\r  L={left_speed:+4d} [{l_bar:<10}]   R={right_speed:+4d} [{r_bar:<10}]   Mode: {current_mode}  ", end='', flush=True)
+            else:
+                # In AGENT or E-STOP mode, don't send joystick commands
+                if current_mode == MODE_AGENT:
+                    print(f"\r  AGENT MODE active - waiting for agent commands...  ", end='', flush=True)
+                elif current_mode == MODE_ESTOP:
+                    print(f"\r  EMERGENCY STOP - motors stopped  ", end='', flush=True)
 
             elapsed = time.monotonic() - t_start
             time.sleep(max(0, interval - elapsed))
@@ -246,6 +362,10 @@ def run_bridge(host: str, serial_port: str, baud: int, ssh_key: str,
             send(0, 0)
         except Exception:
             pass
+        # Reset mode to MANUAL on exit
+        current_mode = MODE_MANUAL
+        save_mode_state(current_mode)
+        send_mode_to_agent(current_mode)
 
     finally:
         pygame.quit()
@@ -263,9 +383,9 @@ def main():
         description="Windows PS5 DualSense -> Rock64 motor bridge (no ROS2, no WSL)"
     )
     parser.add_argument('--host', default='192.168.1.159', help='Rock64 IP address')
-    parser.add_argument('--port', default='/dev/ttyUSB0', help='Serial port on Rock64')
+    parser.add_argument('--port', default=get_default_serial_port(), help='Serial port on Rock64')
     parser.add_argument('--baud', type=int, default=115200)
-    parser.add_argument('--ssh-key', default=r'C:\Users\ZIXXE\.ssh\rock64_sync',
+    parser.add_argument('--ssh-key', default=get_ssh_key_path(),
                         help='Path to SSH private key for rock64 user')
     parser.add_argument('--joystick-index', type=int, default=0)
     parser.add_argument('--lefty-axis', type=int, default=1,

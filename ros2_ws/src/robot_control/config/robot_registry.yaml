@@ -1,0 +1,32 @@
+# robot_registry.yaml — Robot hardware configuration for factory pattern
+#
+# This file defines the available robot implementations and their configuration.
+# The active_robot key determines which robot is instantiated by RobotFactory.
+#
+# Usage:
+#   from robot_factory import RobotFactory
+#   robot = RobotFactory.get_robot('config/robot_registry.yaml')
+
+# Active robot selection (change this to switch between hardware)
+active_robot: "elegoo"
+
+# Robot definitions
+robots:
+  elegoo:
+    class_name: "ElegooSerialRobot"
+    module_path: "robot_control.elegoo_robot"
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    timeout: 0.1
+    description: "Elegoo robot with Arduino Uno motor controller"
+
+  simulation:
+    class_name: "SimulationRobot"
+    module_path: "robot_control.simulation_robot"
+    description: "Mock robot for testing without hardware"
+
+  # Future robot implementations can be added here
+  # turtlebot:
+  #   class_name: "TurtleBotRobot"
+  #   module_path: "robot_control.turtlebot_robot"
+  #   description: "TurtleBot3/4 platform"

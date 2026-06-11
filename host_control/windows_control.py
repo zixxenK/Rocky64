@@ -52,6 +52,7 @@ HOLD_TIMEOUT = 0.4       # a key counts as "held" this long after its last press
 SERVO_STEP = 5           # degrees per servo nudge
 SERVO_MIN, SERVO_MAX = 0, 180
 SERVO_REPEAT_HZ = 8.0    # how fast the servo sweeps while Q/E is held
+SERVO_SMOOTHING = 0.3     # smoothing factor (0-1, lower = smoother)
 
 DRIVE_KEYS = ('w', 'a', 's', 'd')
 SERVO_KEYS = ('q', 'e')
@@ -102,7 +103,7 @@ class Controller:
     """PS5 DualSense source backed by pygame."""
 
     def __init__(self, joystick_index, lefty_axis, rightx_axis,
-                 l1_button, r1_button, quit_button):
+                 l1_button, r1_button, quit_button, debug_mode=False):
         import pygame
         self._pygame = pygame
         self.lefty_axis = lefty_axis
@@ -110,46 +111,110 @@ class Controller:
         self.l1_button = l1_button
         self.r1_button = r1_button
         self.quit_button = quit_button
+        self.joystick_index = joystick_index
+        self.last_connected = True
+        self.disconnect_count = 0
+        self.debug_mode = debug_mode
 
         pygame.init()
         pygame.joystick.init()
-        if pygame.joystick.get_count() == 0:
+        self._connect_joystick()
+
+    def _connect_joystick(self):
+        """Connect or reconnect to the joystick."""
+        count = self._pygame.joystick.get_count()
+        if count == 0:
             raise RuntimeError("No joystick detected by pygame.")
-        if joystick_index >= pygame.joystick.get_count():
+        if self.joystick_index >= count:
             raise RuntimeError(
-                f"Joystick index {joystick_index} requested but only "
-                f"{pygame.joystick.get_count()} found."
+                f"Joystick index {self.joystick_index} requested but only "
+                f"{count} found."
             )
-        self.js = pygame.joystick.Joystick(joystick_index)
+        self.js = self._pygame.joystick.Joystick(self.joystick_index)
         self.js.init()
+        print(f"[control] Joystick connected: {self.js.get_name()}")
+
+    def _check_connection(self):
+        """Check if joystick is still connected, attempt reconnection if not."""
+        try:
+            # Pump events to update joystick state
+            self._pygame.event.pump()
+            
+            # Check if joystick count changed (indicates disconnect/reconnect)
+            current_count = self._pygame.joystick.get_count()
+            if current_count == 0:
+                if self.last_connected:
+                    print("[control] WARNING: Joystick disconnected!")
+                    self.last_connected = False
+                    self.disconnect_count += 1
+                return False
+            
+            # Try to get joystick name - this will fail if disconnected
+            _ = self.js.get_name()
+            
+            if not self.last_connected:
+                print(f"[control] Joystick reconnected: {self.js.get_name()}")
+                self.last_connected = True
+            
+            return True
+        except Exception as e:
+            if self.last_connected:
+                print(f"[control] WARNING: Joystick error: {e}")
+                self.last_connected = False
+                self.disconnect_count += 1
+            
+            # Attempt to reconnect
+            try:
+                self._connect_joystick()
+                self.last_connected = True
+                print("[control] Successfully reconnected to joystick")
+                return True
+            except Exception as reconnect_error:
+                print(f"[control] Reconnection failed: {reconnect_error}")
+                return False
 
     @property
     def name(self):
-        return self.js.get_name()
+        try:
+            return self.js.get_name()
+        except:
+            return "Disconnected"
 
     def _button(self, idx):
-        if idx < 0 or idx >= self.js.get_numbuttons():
+        try:
+            if idx < 0 or idx >= self.js.get_numbuttons():
+                return False
+            return bool(self.js.get_button(idx))
+        except Exception:
             return False
-        return bool(self.js.get_button(idx))
 
     def read(self):
         """Return ``(linear, angular, servo_delta, quit)`` for this tick."""
-        self._pygame.event.pump()
-        raw_linear = self.js.get_axis(self.lefty_axis)
-        raw_angular = self.js.get_axis(self.rightx_axis)
-        linear = -apply_deadzone(raw_linear)   # up = forward
-        angular = -apply_deadzone(raw_angular)  # right = turn right
-        servo_delta = 0
-        if self._button(self.l1_button):
-            servo_delta -= SERVO_STEP
-        if self._button(self.r1_button):
-            servo_delta += SERVO_STEP
+        # Check connection before reading
+        if not self._check_connection():
+            # Return neutral values if disconnected
+            return 0.0, 0.0, 0, False
+        
+        try:
+            raw_linear = self.js.get_axis(self.lefty_axis)
+            raw_angular = self.js.get_axis(self.rightx_axis)
+            linear = -apply_deadzone(raw_linear)   # up = forward
+            angular = -apply_deadzone(raw_angular)  # right = turn right
+            servo_delta = 0
+            if self._button(self.l1_button):
+                servo_delta -= SERVO_STEP
+            if self._button(self.r1_button):
+                servo_delta += SERVO_STEP
 
-        # Debug: print raw axis values if they're non-zero
-        if abs(raw_linear) > 0.01 or abs(raw_angular) > 0.01:
-            print(f"[DEBUG] Raw axis: L={raw_linear:+.3f}, R={raw_angular:+.3f} -> linear={linear:+.3f}, angular={angular:+.3f}")
+            # Debug: print raw axis values if they're non-zero and debug mode is enabled
+            if self.debug_mode and (abs(raw_linear) > 0.01 or abs(raw_angular) > 0.01):
+                print(f"[DEBUG] Raw axis: L={raw_linear:+.3f}, R={raw_angular:+.3f} -> linear={linear:+.3f}, angular={angular:+.3f}")
 
-        return linear, angular, servo_delta, self._button(self.quit_button)
+            return linear, angular, servo_delta, self._button(self.quit_button)
+        except Exception as e:
+            print(f"[control] Error reading joystick: {e}")
+            self.last_connected = False
+            return 0.0, 0.0, 0, False
 
     def close(self):
         try:
@@ -175,7 +240,7 @@ def compute_keyboard_drive(press_times, now):
 
 
 def run(host, serial_port, baud, ssh_key, source, joystick_index,
-        lefty_axis, rightx_axis, l1_button, r1_button, quit_button, dry_run):
+        lefty_axis, rightx_axis, l1_button, r1_button, quit_button, dry_run, debug_mode):
     ssh_proc = open_ssh_pipe(host, serial_port, baud, ssh_key, dry_run)
 
     def send(data: bytes):
@@ -200,16 +265,16 @@ def run(host, serial_port, baud, ssh_key, source, joystick_index,
     controller = None
     keyboard = None
 
-    def try_make_controller():
+    def try_make_controller(debug_mode=False):
         try:
             return Controller(joystick_index, lefty_axis, rightx_axis,
-                              l1_button, r1_button, quit_button)
+                              l1_button, r1_button, quit_button, debug_mode)
         except Exception as exc:
             print(f"[control] Controller unavailable: {exc}")
             return None
 
     if source in ('auto', 'controller'):
-        controller = try_make_controller()
+        controller = try_make_controller(debug_mode)
     try:
         keyboard = KeyboardReader()
     except Exception as exc:
@@ -242,6 +307,7 @@ def run(host, serial_port, baud, ssh_key, source, joystick_index,
 
     press_times: dict = {}
     servo_position = 90
+    target_servo_position = 90  # Target position for smoothing
     last_servo_position = None
     last_servo_update = 0.0
     last_status = None
@@ -262,7 +328,7 @@ def run(host, serial_port, baud, ssh_key, source, joystick_index,
                 for ch in keyboard.poll():
                     if ch == '\t':
                         if mode == 'keyboard' and controller is None:
-                            controller = try_make_controller()
+                            controller = try_make_controller(debug_mode)
                         if mode == 'keyboard' and controller is not None:
                             mode = 'controller'
                         elif mode == 'controller':
@@ -284,8 +350,19 @@ def run(host, serial_port, baud, ssh_key, source, joystick_index,
 
             # --- Compute drive + servo for the active source
             if mode == 'controller' and controller is not None:
-                linear, angular, servo_delta, ctl_quit = controller.read()
-                quit_requested = quit_requested or ctl_quit
+                try:
+                    linear, angular, servo_delta, ctl_quit = controller.read()
+                    quit_requested = quit_requested or ctl_quit
+                    
+                    # If controller disconnected, switch to keyboard
+                    if not controller.last_connected and controller.disconnect_count > 0:
+                        print(f"[control] Controller disconnected ({controller.disconnect_count} times), switching to keyboard mode")
+                        mode = 'keyboard'
+                except Exception as e:
+                    print(f"[control] Error reading controller: {e}")
+                    print(f"[control] Switching to keyboard mode")
+                    mode = 'keyboard'
+                    linear, angular = 0.0, 0.0
             else:
                 mode = 'keyboard'
                 linear, angular = compute_keyboard_drive(press_times, now)
@@ -298,17 +375,37 @@ def run(host, serial_port, baud, ssh_key, source, joystick_index,
                 break
 
             left, right = twist_to_wheel_speeds(linear, angular)
-            send_drive(left, right)
+            try:
+                send_drive(left, right)
+            except (BrokenPipeError, OSError) as e:
+                print(f"\n[control] SSH connection lost: {e}")
+                print(f"[control] Attempting to reconnect...")
+                # Try to re-establish SSH connection
+                try:
+                    ssh_proc = open_ssh_pipe(host, serial_port, baud, ssh_key, dry_run)
+                    print(f"[control] SSH reconnected successfully")
+                except Exception as reconnect_error:
+                    print(f"[control] SSH reconnection failed: {reconnect_error}")
+                    print(f"[control] Continuing in local mode (no motor control)")
+                    # Continue running but without motor control
+                    pass
 
-            # --- Servo (rate-limited sweep while held)
+            # --- Servo (rate-limited sweep while held with smoothing)
             if servo_delta != 0 and (now - last_servo_update) >= (1.0 / SERVO_REPEAT_HZ):
-                servo_position = int(
-                    max(SERVO_MIN, min(SERVO_MAX, servo_position + servo_delta))
+                target_servo_position = int(
+                    max(SERVO_MIN, min(SERVO_MAX, target_servo_position + servo_delta))
                 )
                 last_servo_update = now
-            if servo_position != last_servo_position:
-                send(servo_packet(servo_position))
-                last_servo_position = servo_position
+            
+            # Apply smoothing to servo movement
+            if servo_position != target_servo_position:
+                # Exponential smoothing: new = old + smoothing * (target - old)
+                servo_position = int(servo_position + SERVO_SMOOTHING * (target_servo_position - servo_position))
+                servo_position = max(SERVO_MIN, min(SERVO_MAX, servo_position))
+                
+                if servo_position != last_servo_position:
+                    send(servo_packet(servo_position))
+                    last_servo_position = servo_position
 
             # --- Status line (only when something changes)
             status = (mode, left, right, servo_position)
@@ -378,6 +475,8 @@ def main():
                         help='List detected joysticks and exit')
     parser.add_argument('--dry-run', action='store_true',
                         help='Print packets instead of sending them over SSH')
+    parser.add_argument('--debug', action='store_true',
+                        help='Enable debug output (raw axis values)')
     args = parser.parse_args()
 
     if args.list_joysticks:
@@ -397,6 +496,7 @@ def main():
         r1_button=args.r1_button,
         quit_button=args.quit_button,
         dry_run=args.dry_run,
+        debug_mode=args.debug,
     )
 
 

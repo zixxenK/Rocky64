@@ -1,0 +1,24 @@
+# Rock64 Robot - Unified Dependencies
+# This file contains all Python dependencies for the project
+# Platform-specific packages are marked with environment markers
+
+# Common dependencies (cross-platform)
+pyserial>=3.4
+pygame>=2.0
+opencv-python>=4.7.0
+numpy>=1.24.4; python_version < '3.9'
+numpy>=1.26.0; python_version >= '3.9'
+flask>=2.0.0
+flask-socketio>=5.0.0
+
+# Windows-specific dependencies
+paramiko>=2.11.0; sys_platform == 'win32'
+pywin32>=305; sys_platform == 'win32'
+
+# Linux-specific dependencies
+evdev>=1.5.0; sys_platform == 'linux'
+
+# ROS2-specific dependencies (Linux only)
+# Note: rclpy is installed via ROS2 package manager, not pip
+# This is documented for reference only
+# rclpy; sys_platform == 'linux'

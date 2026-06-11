@@ -1,0 +1,21 @@
+{
+  "motor1": {
+    "min_speed": 150,
+    "max_speed": 250,
+    "invert_direction": false
+  },
+  "motor2": {
+    "min_speed": 150,
+    "max_speed": 250,
+    "invert_direction": false
+  },
+  "safety": {
+    "stop_distance": 10,
+    "warning_distance": 30,
+    "max_speed_limit": 250
+  },
+  "servo": {
+    "scan_range": 90,
+    "scan_speed": 20
+  }
+}

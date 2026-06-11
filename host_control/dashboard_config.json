@@ -1,0 +1,22 @@
+{
+  "platform": "auto",
+  "ros2_enabled": true,
+  "agent_enabled": true,
+  "camera_source": "esp32",
+  "camera_url": "http://192.168.1.153/stream",
+  "camera_index": 0,
+  "manual_control": "virtual_joystick",
+  "auto_boot": true,
+  "ros2_workspace": "/home/rock64/ros2_ws",
+  "ros2_launch_file": "rock64_bringup.launch.py",
+  "max_retries": 5,
+  "retry_delay": 2.0,
+  "ollama_host": "localhost",
+  "ollama_port": 11434,
+  "wait_for_ollama": true,
+  "ollama_timeout": 30.0,
+  "camera_width": 320,
+  "camera_height": 240,
+  "camera_fps": null,
+  "jpeg_quality": 91
+}

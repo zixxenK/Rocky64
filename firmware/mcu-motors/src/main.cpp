@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Servo.h>
 #include <avr/wdt.h>
+#include <EEPROM.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -13,6 +14,11 @@ void checkHeartbeat();
 void applyCameraServo(int position);
 int readUltrasonicDistance();
 void updateUltrasonicTelemetry();
+void loadConfig();
+void saveConfig();
+void resetConfig();
+void handleConfigCommand(char* packet);
+void updateServoScan();
 
 // --- CONFIGURATION ---
 const unsigned long HEARTBEAT_TIMEOUT_MS = 200;
@@ -20,13 +26,19 @@ const size_t SERIAL_BUF_SIZE = 32;
 
 // Geared DC motors need a minimum duty cycle to overcome static friction.
 // Below this the coils buzz/hum without turning. Tune 70-95 to your motors.
-const int MIN_MOVE_PWM = 100;
+const int DEFAULT_MIN_MOVE_PWM = 100;
+int MIN_MOVE_PWM = 100;
+
+// Global speed limit (reduced from 255 to 180 for safer operation)
+const int DEFAULT_MAX_SPEED = 180;
+int MAX_SPEED = 180;
 
 // Ultrasonic sensor configuration (SmartCar Shield v1.1 pinout)
 const uint8_t ULTRASONIC_TRIG_PIN = 13;
 const uint8_t ULTRASONIC_ECHO_PIN = 12;
 const unsigned long ULTRASONIC_UPDATE_INTERVAL_MS = 100; // Update every 100ms
-const int EMERGENCY_STOP_DISTANCE_CM = 10; // Stop if obstacle within 10cm
+const int DEFAULT_EMERGENCY_STOP_DISTANCE_CM = 10; // Stop if obstacle within 10cm
+int EMERGENCY_STOP_DISTANCE_CM = 10;
 
 // ELEGOO Smart Robot Car V4.0 pin assignments (from DeviceDriverSet_xxx0.h)
 // Motor A (Right): PWMA=5, AIN_1=7
@@ -37,6 +49,35 @@ const uint8_t RIGHT_DIR_PIN = 7;    // AIN_1 (Motor A direction)
 const uint8_t LEFT_SPEED_PIN = 6;   // PWMB (Motor B)
 const uint8_t LEFT_DIR_PIN = 8;     // BIN_1 (Motor B direction)
 const uint8_t STBY_PIN = 3;         // STBY pin (ELEGOO uses pin 3)
+
+// --- CONFIGURATION STRUCTURES ---
+struct MotorConfig {
+  int minSpeed;
+  int maxSpeed;
+  bool invertDirection;
+};
+
+struct SafetyConfig {
+  int stopDistance;
+  int warningDistance;
+  int maxSpeedLimit;
+};
+
+struct ServoConfig {
+  int scanRange;
+  int scanSpeed;
+};
+
+// Global configuration
+MotorConfig motorConfig[2];  // [0] = Motor 1 (Right), [1] = Motor 2 (Left)
+SafetyConfig safetyConfig;
+ServoConfig servoConfig;
+
+// EEPROM addresses
+#define EEPROM_MAGIC 0xA5
+#define EEPROM_MAGIC_ADDR 0
+#define EEPROM_CONFIG_START 1
+#define EEPROM_CONFIG_SIZE sizeof(motorConfig) + sizeof(safetyConfig) + sizeof(servoConfig)
 
 // Servo pin - can be overridden with build flag -DCAMERA_SERVO_PIN=X
 #ifndef CAMERA_SERVO_PIN
@@ -60,6 +101,12 @@ unsigned long lastCommandTime = 0;
 unsigned long lastUltrasonicUpdate = 0;
 int currentDistanceCm = 0;
 
+// Servo scanning state
+bool servoScanning = false;
+int servoScanDirection = 1;
+unsigned long lastServoScanUpdate = 0;
+int currentServoPosition = CAMERA_SERVO_CENTER;
+
 void setup() {
   Serial.begin(115200);
   wdt_enable(WDTO_500MS);
@@ -77,6 +124,9 @@ void setup() {
   pinMode(ULTRASONIC_ECHO_PIN, INPUT);
   digitalWrite(ULTRASONIC_TRIG_PIN, LOW);
 
+  // Load configuration from EEPROM
+  loadConfig();
+
   stopMotors();
 
   cameraServo.attach(MY_ROBOT_SERVO_PIN);
@@ -91,6 +141,7 @@ void loop() {
   checkHeartbeat();
   readSerialInput();
   updateUltrasonicTelemetry();
+  updateServoScan();
 }
 
 // --- FUNCTION DEFINITIONS ---
@@ -109,6 +160,7 @@ void stopMotors() {
 
 void setMotor(int motorId, char dir, int speed) {
   uint8_t speedPin, dirPin;
+  int configIndex = motorId - 1;  // Convert to 0-based index
 
   if (motorId == 1) { // Motor 1 = Right (Motor A)
     speedPin = RIGHT_SPEED_PIN;
@@ -122,14 +174,24 @@ void setMotor(int motorId, char dir, int speed) {
 
   bool isMoving = false;
 
+  // Apply motor-specific configuration
+  int minSpeed = motorConfig[configIndex].minSpeed;
+  int maxSpeed = motorConfig[configIndex].maxSpeed;
+  bool invertDir = motorConfig[configIndex].invertDirection;
+
+  // Clamp speed to configured limits
+  speed = constrain(speed, 0, maxSpeed);
+
   // ELEGOO single-pin control: LOW = forward, HIGH = backward
   if (dir == 'F') {
-    if (speed > 0 && speed < MIN_MOVE_PWM) speed = MIN_MOVE_PWM;
+    if (speed > 0 && speed < minSpeed) speed = minSpeed;
+    if (invertDir) dir = 'B';
     digitalWrite(dirPin, LOW);    // Forward
     analogWrite(speedPin, speed);
     isMoving = true;
   } else if (dir == 'B') {
-    if (speed > 0 && speed < MIN_MOVE_PWM) speed = MIN_MOVE_PWM;
+    if (speed > 0 && speed < minSpeed) speed = minSpeed;
+    if (invertDir) dir = 'F';
     digitalWrite(dirPin, HIGH);   // Backward
     analogWrite(speedPin, speed);
     isMoving = true;
@@ -189,6 +251,11 @@ void parseCommand(char* packet) {
     return;
   }
 
+  if (strcmp(token, "CONFIG") == 0) {
+    handleConfigCommand(packet);
+    return;
+  }
+
   int motorId = atoi(token);
   token = strtok(NULL, ",");
   if (token == NULL) return;
@@ -196,7 +263,7 @@ void parseCommand(char* packet) {
 
   token = strtok(NULL, ",");
   if (token == NULL) return;
-  int speedVal = constrain(atoi(token), 0, 255);
+  int speedVal = constrain(atoi(token), 0, MAX_SPEED);
 
   // Debug: echo received command
   Serial.print("<ACK,M");
@@ -258,7 +325,7 @@ void updateUltrasonicTelemetry() {
     Serial.println(">");
 
     // Emergency stop if obstacle is too close
-    if (currentDistanceCm > 0 && currentDistanceCm < EMERGENCY_STOP_DISTANCE_CM) {
+    if (currentDistanceCm > 0 && currentDistanceCm < safetyConfig.stopDistance) {
       if (motor1Active || motor2Active) {
         stopMotors();
         Serial.print("<ALERT,OBSTACLE,");
@@ -266,5 +333,194 @@ void updateUltrasonicTelemetry() {
         Serial.println(">");
       }
     }
+  }
+}
+
+// --- CONFIGURATION MANAGEMENT ---
+
+void loadConfig() {
+  // Check if EEPROM has valid config
+  uint8_t magic = EEPROM.read(EEPROM_MAGIC_ADDR);
+  if (magic != EEPROM_MAGIC) {
+    // No valid config, use defaults
+    resetConfig();
+    Serial.println("<CONFIG,LOAD,DEFAULT>");
+    return;
+  }
+
+  // Load config from EEPROM
+  EEPROM.get(EEPROM_CONFIG_START, motorConfig);
+  EEPROM.get(EEPROM_CONFIG_START + sizeof(motorConfig), safetyConfig);
+  EEPROM.get(EEPROM_CONFIG_START + sizeof(motorConfig) + sizeof(safetyConfig), servoConfig);
+
+  // Apply loaded config to runtime variables
+  MIN_MOVE_PWM = motorConfig[0].minSpeed;
+  MAX_SPEED = safetyConfig.maxSpeedLimit;
+  EMERGENCY_STOP_DISTANCE_CM = safetyConfig.stopDistance;
+
+  Serial.println("<CONFIG,LOAD,SUCCESS>");
+}
+
+void saveConfig() {
+  // Write magic byte
+  EEPROM.write(EEPROM_MAGIC_ADDR, EEPROM_MAGIC);
+
+  // Save config to EEPROM
+  EEPROM.put(EEPROM_CONFIG_START, motorConfig);
+  EEPROM.put(EEPROM_CONFIG_START + sizeof(motorConfig), safetyConfig);
+  EEPROM.put(EEPROM_CONFIG_START + sizeof(motorConfig) + sizeof(safetyConfig), servoConfig);
+
+  Serial.println("<CONFIG,SAVE,SUCCESS>");
+}
+
+void resetConfig() {
+  // Reset motor configs
+  for (int i = 0; i < 2; i++) {
+    motorConfig[i].minSpeed = DEFAULT_MIN_MOVE_PWM;
+    motorConfig[i].maxSpeed = DEFAULT_MAX_SPEED;
+    motorConfig[i].invertDirection = false;
+  }
+
+  // Reset safety config
+  safetyConfig.stopDistance = DEFAULT_EMERGENCY_STOP_DISTANCE_CM;
+  safetyConfig.warningDistance = 30;  // 30cm warning distance
+  safetyConfig.maxSpeedLimit = DEFAULT_MAX_SPEED;
+
+  // Reset servo config
+  servoConfig.scanRange = 90;  // 45 degrees left to 45 degrees right
+  servoConfig.scanSpeed = 20;  // 20ms per degree
+
+  // Apply to runtime variables
+  MIN_MOVE_PWM = DEFAULT_MIN_MOVE_PWM;
+  MAX_SPEED = DEFAULT_MAX_SPEED;
+  EMERGENCY_STOP_DISTANCE_CM = DEFAULT_EMERGENCY_STOP_DISTANCE_CM;
+
+  Serial.println("<CONFIG,RESET,SUCCESS>");
+}
+
+void handleConfigCommand(char* packet) {
+  char* token = strtok(packet, ",");
+  if (token == NULL) return;
+  
+  // Skip "CONFIG" token
+  token = strtok(NULL, ",");
+  if (token == NULL) return;
+
+  if (strcmp(token, "SAVE") == 0) {
+    saveConfig();
+    return;
+  }
+
+  if (strcmp(token, "LOAD") == 0) {
+    loadConfig();
+    return;
+  }
+
+  if (strcmp(token, "RESET") == 0) {
+    resetConfig();
+    return;
+  }
+
+  // Motor configuration: CONFIG,MOTOR1,MIN_SPEED,value
+  if (strncmp(token, "MOTOR", 5) == 0) {
+    int motorId = atoi(token + 5) - 1;  // Convert to 0-based index
+    if (motorId < 0 || motorId >= 2) return;
+
+    token = strtok(NULL, ",");
+    if (token == NULL) return;
+
+    if (strcmp(token, "MIN_SPEED") == 0) {
+      token = strtok(NULL, ",");
+      if (token != NULL) {
+        motorConfig[motorId].minSpeed = atoi(token);
+        MIN_MOVE_PWM = motorConfig[0].minSpeed;
+        Serial.print("<CONFIG,MOTOR");
+        Serial.print(motorId + 1);
+        Serial.print(",MIN_SPEED,");
+        Serial.println(motorConfig[motorId].minSpeed);
+      }
+    } else if (strcmp(token, "MAX_SPEED") == 0) {
+      token = strtok(NULL, ",");
+      if (token != NULL) {
+        motorConfig[motorId].maxSpeed = atoi(token);
+        Serial.print("<CONFIG,MOTOR");
+        Serial.print(motorId + 1);
+        Serial.print(",MAX_SPEED,");
+        Serial.println(motorConfig[motorId].maxSpeed);
+      }
+    } else if (strcmp(token, "INVERT") == 0) {
+      token = strtok(NULL, ",");
+      if (token != NULL) {
+        motorConfig[motorId].invertDirection = (strcmp(token, "true") == 0);
+        Serial.print("<CONFIG,MOTOR");
+        Serial.print(motorId + 1);
+        Serial.print(",INVERT,");
+        Serial.println(motorConfig[motorId].invertDirection ? "true" : "false");
+      }
+    }
+    return;
+  }
+
+  // Safety configuration
+  if (strcmp(token, "SAFETY") == 0) {
+    token = strtok(NULL, ",");
+    if (token == NULL) return;
+
+    if (strcmp(token, "STOP_DIST") == 0) {
+      token = strtok(NULL, ",");
+      if (token != NULL) {
+        safetyConfig.stopDistance = atoi(token);
+        EMERGENCY_STOP_DISTANCE_CM = safetyConfig.stopDistance;
+        Serial.print("<CONFIG,SAFETY,STOP_DIST,");
+        Serial.println(safetyConfig.stopDistance);
+      }
+    } else if (strcmp(token, "MAX_SPEED") == 0) {
+      token = strtok(NULL, ",");
+      if (token != NULL) {
+        safetyConfig.maxSpeedLimit = atoi(token);
+        MAX_SPEED = safetyConfig.maxSpeedLimit;
+        Serial.print("<CONFIG,SAFETY,MAX_SPEED,");
+        Serial.println(safetyConfig.maxSpeedLimit);
+      }
+    }
+    return;
+  }
+
+  // Servo configuration
+  if (strcmp(token, "SERVO") == 0) {
+    token = strtok(NULL, ",");
+    if (token == NULL) return;
+
+    if (strcmp(token, "SCAN_RANGE") == 0) {
+      token = strtok(NULL, ",");
+      if (token != NULL) {
+        servoConfig.scanRange = atoi(token);
+        Serial.print("<CONFIG,SERVO,SCAN_RANGE,");
+        Serial.println(servoConfig.scanRange);
+      }
+    }
+    return;
+  }
+}
+
+void updateServoScan() {
+  if (!servoScanning) return;
+
+  unsigned long now = millis();
+  if (now - lastServoScanUpdate >= (unsigned long)servoConfig.scanSpeed) {
+    lastServoScanUpdate = now;
+
+    // Update servo position
+    currentServoPosition += servoScanDirection;
+
+    // Reverse direction at limits
+    int halfRange = servoConfig.scanRange / 2;
+    if (currentServoPosition >= CAMERA_SERVO_CENTER + halfRange) {
+      servoScanDirection = -1;
+    } else if (currentServoPosition <= CAMERA_SERVO_CENTER - halfRange) {
+      servoScanDirection = 1;
+    }
+
+    cameraServo.write(currentServoPosition);
   }
 }
